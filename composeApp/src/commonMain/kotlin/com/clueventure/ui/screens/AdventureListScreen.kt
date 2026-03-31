@@ -24,11 +24,11 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.clueventure.data.model.Adventure
 import com.clueventure.ui.viewmodel.AdventureListUiState
 import com.clueventure.ui.viewmodel.AdventureListViewModel
@@ -37,7 +37,7 @@ import com.clueventure.ui.viewmodel.AdventureListViewModel
 @Composable
 fun AdventureListScreen(
     onAdventureSelected: (Adventure) -> Unit,
-    viewModel: AdventureListViewModel = viewModel { AdventureListViewModel() }
+    viewModel: AdventureListViewModel = remember { AdventureListViewModel() }
 ) {
     val uiState by viewModel.uiState.collectAsState()
 

@@ -32,9 +32,9 @@ class AdventureRepository {
         client.from("waypoints")
             .select {
                 filter { eq("adventure_id", adventureId) }
-                order("order_index")
             }
-            .decodeList()
+            .decodeList<Waypoint>()
+            .sortedBy { it.orderIndex }
 
     suspend fun getQuestionsForWaypoint(waypointId: String): List<Question> =
         client.from("questions")

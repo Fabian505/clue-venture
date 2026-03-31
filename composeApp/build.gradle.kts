@@ -1,4 +1,5 @@
 import com.codingfeline.buildkonfig.compiler.FieldSpec.Type.STRING
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -11,7 +12,7 @@ plugins {
 
 // Load secrets from secrets.properties (gitignored) with fallback defaults
 val secretsFile = rootProject.file("secrets.properties")
-val secrets = java.util.Properties().apply {
+val secrets = Properties().apply {
     if (secretsFile.exists()) load(secretsFile.inputStream())
 }
 

@@ -34,7 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.runtime.remember
 import com.clueventure.ui.viewmodel.QuizUiState
 import com.clueventure.ui.viewmodel.QuizViewModel
 
@@ -45,7 +45,7 @@ fun QuizQuestionScreen(
     waypointTitle: String,
     onNavigateBack: () -> Unit,
     onAnsweredCorrectly: (pointsEarned: Int) -> Unit,
-    viewModel: QuizViewModel = viewModel { QuizViewModel() }
+    viewModel: QuizViewModel = remember { QuizViewModel() }
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
