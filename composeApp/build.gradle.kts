@@ -75,5 +75,7 @@ android {
 
 dependencies {
     debugImplementation(libs.compose.uiTooling)
+    implementation(libs.openmapview)
+    implementation(libs.maplibre)
 }
 
