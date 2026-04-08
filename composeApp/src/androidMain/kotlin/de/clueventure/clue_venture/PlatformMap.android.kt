@@ -15,6 +15,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -23,11 +25,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -61,6 +68,7 @@ actual fun PlatformMap(modifier: Modifier) {
 
     var mapLibreMap by remember { mutableStateOf<MapLibreMap?>(null) }
     var hasLocationPermission by remember { mutableStateOf(hasLocationPermission(context)) }
+    var latestLocation by remember { mutableStateOf<Location?>(null) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -70,6 +78,7 @@ actual fun PlatformMap(modifier: Modifier) {
 
     LaunchedEffect(hasLocationPermission) {
         if (!hasLocationPermission) {
+            latestLocation = null
             permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
         }
     }
@@ -121,6 +130,7 @@ actual fun PlatformMap(modifier: Modifier) {
             override fun onLocationChanged(location: Location) {
                 if (bestLocation == null || isBetterLocation(location, bestLocation!!)) {
                     bestLocation = location
+                    latestLocation = location
                     if (!hasCenteredCamera) {
                         moveCameraToLocation(map, location)
                         hasCenteredCamera = true
@@ -170,6 +180,7 @@ actual fun PlatformMap(modifier: Modifier) {
 
         if (lastKnown != null) {
             bestLocation = lastKnown
+            latestLocation = lastKnown
             moveCameraToLocation(map, lastKnown)
             hasCenteredCamera = true
             updateLocationMarker(lastKnown)
@@ -248,6 +259,38 @@ actual fun PlatformMap(modifier: Modifier) {
             factory = { mapView },
             modifier = Modifier.fillMaxSize(),
         )
+
+        val canRecenter = hasLocationPermission && latestLocation != null && mapLibreMap != null
+        Surface(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp),
+            shape = CircleShape,
+            tonalElevation = 4.dp,
+            shadowElevation = 6.dp,
+        ) {
+            IconButton(
+                onClick = {
+                    val location = latestLocation
+                    val map = mapLibreMap
+                    if (location != null && map != null) {
+                        moveCameraToLocation(map, location)
+                    }
+                },
+                enabled = canRecenter,
+                modifier = Modifier.size(48.dp),
+            ) {
+                Icon(
+                    painter = painterResource(android.R.drawable.ic_menu_mylocation),
+                    contentDescription = "Auf aktuellen Standort zentrieren",
+                    tint = if (canRecenter) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+        }
 
         if (!hasLocationPermission) {
             Text(
