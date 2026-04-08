@@ -11,6 +11,11 @@ import android.location.LocationManager
 import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -18,20 +23,36 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.unit.dp
 import org.maplibre.android.MapLibre
-import org.maplibre.android.annotations.MarkerOptions
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
-import java.text.DecimalFormat
+import org.maplibre.android.maps.Style
+import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.PropertyFactory.circleColor
+import org.maplibre.android.style.layers.PropertyFactory.circleRadius
+import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
+import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.Point
+
+private const val INITIAL_MAP_ZOOM = 15.0
+private const val MAX_MAP_ZOOM = 18.0
+private const val LOCATION_SOURCE_ID = "current-location-source"
+private const val LOCATION_LAYER_ID = "current-location-layer"
 
 @Composable
 actual fun PlatformMap(modifier: Modifier) {
@@ -42,22 +63,14 @@ actual fun PlatformMap(modifier: Modifier) {
     var hasLocationPermission by remember { mutableStateOf(hasLocationPermission(context)) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions(),
-    ) { permissions ->
-        hasLocationPermission =
-            permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
-                permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true ||
-                hasLocationPermission(context)
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        hasLocationPermission = granted && hasLocationPermission(context)
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(hasLocationPermission) {
         if (!hasLocationPermission) {
-            permissionLauncher.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION,
-                ),
-            )
+            permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
         }
     }
 
@@ -67,7 +80,10 @@ actual fun PlatformMap(modifier: Modifier) {
             onCreate(null)
             getMapAsync { map ->
                 mapLibreMap = map
-                map.setStyle("asset://style.json")
+                map.setMaxZoomPreference(MAX_MAP_ZOOM)
+                map.setStyle("asset://style.json") { style ->
+                    ensureLocationLayer(style)
+                }
             }
         }
     }
@@ -80,26 +96,36 @@ actual fun PlatformMap(modifier: Modifier) {
 
         val locationManager =
             context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-        if (locationManager == null) {
+                ?: return@DisposableEffect onDispose { }
+
+        val fineLocationGranted =
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+            ) == PackageManager.PERMISSION_GRANTED
+        if (!fineLocationGranted) {
             return@DisposableEffect onDispose { }
         }
 
         var bestLocation: Location? = null
+        var hasCenteredCamera = false
+
+        fun updateLocationMarker(location: Location) {
+            map.getStyle { style ->
+                val source = style.getSourceAs<GeoJsonSource>(LOCATION_SOURCE_ID) ?: return@getStyle
+                source.setGeoJson(Point.fromLngLat(location.longitude, location.latitude))
+            }
+        }
+
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
-                val markerOptionsList: MutableList<MarkerOptions> = ArrayList()
-                val formatter = DecimalFormat("#.#####")
-                val latlng: LatLng = LatLng(location.latitude, location.longitude)
-                markerOptionsList.add(
-                    MarkerOptions()
-                        .position(latlng)
-                        .snippet(formatter.format(latlng.latitude) + "`, " + formatter.format(latlng.longitude))
-                    )
-
                 if (bestLocation == null || isBetterLocation(location, bestLocation!!)) {
                     bestLocation = location
-                    moveCameraToLocation(map, location)
-                    map.addMarkers(markerOptionsList)
+                    if (!hasCenteredCamera) {
+                        moveCameraToLocation(map, location)
+                        hasCenteredCamera = true
+                    }
+                    updateLocationMarker(location)
                     map.uiSettings.isZoomGesturesEnabled = true
                     map.uiSettings.isRotateGesturesEnabled = true
 
@@ -115,20 +141,42 @@ actual fun PlatformMap(modifier: Modifier) {
             LocationManager.GPS_PROVIDER,
             LocationManager.NETWORK_PROVIDER,
             LocationManager.PASSIVE_PROVIDER,
-        ).filter(locationManager::isProviderEnabled)
+        ).filter { provider ->
+            try {
+                locationManager.isProviderEnabled(provider)
+            } catch (_: SecurityException) {
+                false
+            }
+        }
 
         val lastKnown = enabledProviders
             .asSequence()
-            .mapNotNull { provider -> runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull() }
+            .mapNotNull { provider ->
+                if (
+                    ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                    ) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    return@mapNotNull null
+                }
+                try {
+                    locationManager.getLastKnownLocation(provider)
+                } catch (_: SecurityException) {
+                    null
+                }
+            }
             .maxByOrNull { it.time }
 
         if (lastKnown != null) {
             bestLocation = lastKnown
             moveCameraToLocation(map, lastKnown)
+            hasCenteredCamera = true
+            updateLocationMarker(lastKnown)
         }
 
         enabledProviders.forEach { provider ->
-            runCatching {
+            try {
                 locationManager.requestLocationUpdates(
                     provider,
                     2000L,
@@ -136,11 +184,17 @@ actual fun PlatformMap(modifier: Modifier) {
                     listener,
                     Looper.getMainLooper(),
                 )
+            } catch (_: SecurityException) {
+                // Permission can be revoked while the screen is visible.
             }
         }
 
         onDispose {
             runCatching { locationManager.removeUpdates(listener) }
+            map.getStyle { style ->
+                style.getSourceAs<GeoJsonSource>(LOCATION_SOURCE_ID)
+                    ?.setGeoJson(FeatureCollection.fromFeatures(arrayOf()))
+            }
         }
     }
 
@@ -154,6 +208,7 @@ actual fun PlatformMap(modifier: Modifier) {
                 }
             }
 
+            @Deprecated("Kept for ComponentCallbacks compatibility")
             override fun onLowMemory() {
                 mapView.onLowMemory()
             }
@@ -188,24 +243,31 @@ actual fun PlatformMap(modifier: Modifier) {
         }
     }
 
-    AndroidView(
-        factory = { mapView },
-        modifier = modifier,
-    )
+    Box(modifier = modifier) {
+        AndroidView(
+            factory = { mapView },
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        if (!hasLocationPermission) {
+            Text(
+                text = "Der genaue Standort wird benötigt. Bitte präzise Standortfreigabe aktivieren.",
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(16.dp)
+                    .background(Color(0xCC000000), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+        }
+    }
 }
 
 private fun hasLocationPermission(context: Context): Boolean {
-    val fineGranted = ContextCompat.checkSelfPermission(
+    return ContextCompat.checkSelfPermission(
         context,
         Manifest.permission.ACCESS_FINE_LOCATION,
     ) == PackageManager.PERMISSION_GRANTED
-
-    val coarseGranted = ContextCompat.checkSelfPermission(
-        context,
-        Manifest.permission.ACCESS_COARSE_LOCATION,
-    ) == PackageManager.PERMISSION_GRANTED
-
-    return fineGranted || coarseGranted
 }
 
 private fun isBetterLocation(newLocation: Location, currentBest: Location): Boolean {
@@ -228,6 +290,25 @@ private fun isBetterLocation(newLocation: Location, currentBest: Location): Bool
 private fun moveCameraToLocation(map: MapLibreMap, location: Location) {
     map.cameraPosition = CameraPosition.Builder()
         .target(LatLng(location.latitude, location.longitude))
-        .zoom(15.0)
+        .zoom(INITIAL_MAP_ZOOM)
         .build()
 }
+
+private fun ensureLocationLayer(style: Style) {
+    if (style.getSource(LOCATION_SOURCE_ID) == null) {
+        style.addSource(GeoJsonSource(LOCATION_SOURCE_ID, FeatureCollection.fromFeatures(arrayOf())))
+    }
+
+    if (style.getLayer(LOCATION_LAYER_ID) == null) {
+        style.addLayer(
+            CircleLayer(LOCATION_LAYER_ID, LOCATION_SOURCE_ID)
+                .withProperties(
+                    circleRadius(6f),
+                    circleColor("#1E88E5"),
+                    circleStrokeColor("#FFFFFF"),
+                    circleStrokeWidth(2f),
+                ),
+        )
+    }
+}
+
