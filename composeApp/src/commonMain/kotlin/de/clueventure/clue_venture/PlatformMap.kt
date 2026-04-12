@@ -4,4 +4,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 
 @Composable
-expect fun PlatformMap(modifier: Modifier = Modifier)
+expect fun PlatformMap(
+	modifier: Modifier = Modifier,
+	routeTarget: GeoPoint? = null,
+	onCurrentLocationChanged: (GeoPoint?) -> Unit = {},
+)

@@ -9,7 +9,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 
 @Composable
-actual fun PlatformMap(modifier: Modifier) {
+actual fun PlatformMap(
+    modifier: Modifier,
+    routeTarget: GeoPoint?,
+    onCurrentLocationChanged: (GeoPoint?) -> Unit,
+) {
     Box(
         modifier = modifier
             .background(MaterialTheme.colorScheme.surfaceVariant),
