@@ -1,5 +1,6 @@
 package de.clueventure.clue_venture
 
+import TodoList
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -43,4 +44,5 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppAndroidPreview() {
     App()
+    TodoList()
 }

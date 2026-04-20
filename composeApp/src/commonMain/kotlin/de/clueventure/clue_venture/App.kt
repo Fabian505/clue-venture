@@ -205,11 +205,7 @@ fun App() {
 					onCurrentLocationChanged = { currentLocation = it },
 				)
 
-				BottomTab.Right -> PlaceholderContent(
-					modifier = Modifier
-						.fillMaxSize()
-						.padding(innerPadding),
-				)
+				BottomTab.Right -> TodoList()
 			}
 		}
 
@@ -347,19 +343,6 @@ private fun AdventureCard(
 				}
 			}
 		}
-	}
-}
-
-@Composable
-private fun PlaceholderContent(modifier: Modifier = Modifier) {
-	Box(
-		modifier = modifier,
-		contentAlignment = Alignment.Center,
-	) {
-		Text(
-			text = "Hier folgt später das rechte Menü.",
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
-		)
 	}
 }
 
