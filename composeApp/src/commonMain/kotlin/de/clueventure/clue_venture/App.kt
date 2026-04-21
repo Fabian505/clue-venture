@@ -183,7 +183,7 @@ fun App() {
 			},
 		) { innerPadding ->
 			when (selectedTab) {
-				BottomTab.Left -> AdventureListScreen(
+				BottomTab.Left -> AdventureListScreenWrapper(
 					modifier = Modifier
 						.fillMaxSize()
 						.padding(innerPadding),
@@ -227,16 +227,17 @@ fun App() {
 }
 
 @Composable
-private fun AdventureListScreen(
+fun AdventureListScreen(
 	modifier: Modifier,
 	searchQuery: String,
 	onSearchQueryChange: (String) -> Unit,
 	currentLocation: GeoPoint?,
 	onNavigateToStart: (Adventure) -> Unit,
 	onCreateAdventure: () -> Unit,
+	adventures: List<Adventure>,
 ) {
-	val visibleAdventures = remember(searchQuery, currentLocation) {
-		val filtered = sampleAdventures.filter { adventure ->
+	val visibleAdventures = remember(searchQuery, currentLocation, adventures) {
+		val filtered = adventures.filter { adventure ->
 			searchQuery.isBlank() || adventure.title.contains(searchQuery.trim(), ignoreCase = true)
 		}
 
