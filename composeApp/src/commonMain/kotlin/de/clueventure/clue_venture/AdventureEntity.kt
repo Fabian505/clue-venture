@@ -25,6 +25,16 @@ data class AdventureInsertEntity(
 )
 
 @Serializable
+data class AdventureUpdateEntity(
+    val title: String,
+    val summary: String,
+    @SerialName("start_latitude") val startLatitude: Double,
+    @SerialName("start_longitude") val startLongitude: Double,
+    val difficulty: String? = null,
+    @SerialName("estimated_duration_minutes") val estimatedDurationMinutes: Int? = null,
+)
+
+@Serializable
 data class AdventureLocationInsertEntity(
     @SerialName("adventure_id") val adventureId: Long,
     val name: String,

@@ -37,6 +37,14 @@ data class AdventureDraft(
     val locations: List<AdventureLocationDraft>,
 )
 
+data class AdventureMetadataDraft(
+    val title: String,
+    val summary: String,
+    val startPoint: GeoPoint,
+    val difficulty: String?,
+    val estimatedDurationMinutes: Int?,
+)
+
 data class AdventureLocationDraft(
     val name: String,
     val point: GeoPoint,

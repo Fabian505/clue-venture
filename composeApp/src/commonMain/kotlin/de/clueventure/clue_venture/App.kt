@@ -30,6 +30,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -164,6 +165,7 @@ fun App() {
 	var currentLocation by remember { mutableStateOf<GeoPoint?>(null) }
 	var routeTargets by remember { mutableStateOf<List<GeoPoint>>(emptyList()) }
 	var showCreateAdventureDialog by remember { mutableStateOf(false) }
+	var editingAdventure by remember { mutableStateOf<Adventure?>(null) }
 	var adventureRefreshKey by remember { mutableStateOf(0) }
 
 	MaterialTheme {
@@ -206,6 +208,9 @@ fun App() {
 						}
 					},
 					onCreateAdventure = { showCreateAdventureDialog = true },
+					onEditAdventure = { adventure ->
+						editingAdventure = adventure
+					},
 				)
 
 				BottomTab.Map -> PlatformMap(
@@ -225,6 +230,17 @@ fun App() {
 				currentLocation = currentLocation,
 				onDismiss = { showCreateAdventureDialog = false },
 				onAdventureCreated = {
+					adventureRefreshKey += 1
+				},
+			)
+		}
+
+		editingAdventure?.let { adventure ->
+			EditAdventureDialog(
+				adventure = adventure,
+				currentLocation = currentLocation,
+				onDismiss = { editingAdventure = null },
+				onAdventureUpdated = {
 					adventureRefreshKey += 1
 				},
 			)
@@ -545,6 +561,350 @@ private fun CreateAdventureDialog(
 	)
 }
 
+@Composable
+private fun EditAdventureDialog(
+	adventure: Adventure,
+	currentLocation: GeoPoint?,
+	onDismiss: () -> Unit,
+	onAdventureUpdated: () -> Unit,
+) {
+	val scope = rememberCoroutineScope()
+
+	var title by remember(adventure.id) { mutableStateOf(adventure.title) }
+	var summary by remember(adventure.id) { mutableStateOf(adventure.summary) }
+	var difficulty by remember(adventure.id) { mutableStateOf(adventure.difficulty.orEmpty()) }
+	var durationMinutes by remember(adventure.id) { mutableStateOf(adventure.estimatedDurationMinutes?.toString().orEmpty()) }
+	var startLatitude by remember(adventure.id) { mutableStateOf(adventure.startPoint.latitude.toString()) }
+	var startLongitude by remember(adventure.id) { mutableStateOf(adventure.startPoint.longitude.toString()) }
+
+	var locationName by remember(adventure.id) { mutableStateOf("") }
+	var locationLatitude by remember(adventure.id) { mutableStateOf("") }
+	var locationLongitude by remember(adventure.id) { mutableStateOf("") }
+	var existingLocations by remember(adventure.id) { mutableStateOf<List<AdventureLocation>>(emptyList()) }
+	var newLocations by remember(adventure.id) { mutableStateOf<List<AdventureLocationDraft>>(emptyList()) }
+
+	var isLoadingLocations by remember(adventure.id) { mutableStateOf(true) }
+	var isSubmitting by remember(adventure.id) { mutableStateOf(false) }
+	var errorMessage by remember(adventure.id) { mutableStateOf<String?>(null) }
+
+	LaunchedEffect(adventure.id) {
+		isLoadingLocations = true
+		errorMessage = null
+		runCatching {
+			getAdventureLocations(adventure.id)
+		}.onSuccess { locations ->
+			existingLocations = locations.sortedBy { it.orderIndex }
+		}.onFailure {
+			errorMessage = "Orte konnten nicht geladen werden."
+		}
+		isLoadingLocations = false
+	}
+
+	fun addNewLocation() {
+		val parsedLatitude = locationLatitude.toDoubleOrNull()
+		val parsedLongitude = locationLongitude.toDoubleOrNull()
+
+		when {
+			locationName.isBlank() -> errorMessage = "Bitte gib einen Namen fuer den Ort ein."
+			parsedLatitude == null || parsedLongitude == null -> {
+				errorMessage = "Bitte gib gueltige Koordinaten fuer den Ort ein."
+			}
+			!isValidLatitude(parsedLatitude) || !isValidLongitude(parsedLongitude) -> {
+				errorMessage = "Koordinaten muessen in gueltigen Bereichen liegen."
+			}
+			else -> {
+				errorMessage = null
+				newLocations = newLocations + AdventureLocationDraft(
+					name = locationName.trim(),
+					point = GeoPoint(latitude = parsedLatitude, longitude = parsedLongitude),
+				)
+				locationName = ""
+				locationLatitude = ""
+				locationLongitude = ""
+			}
+		}
+	}
+
+	AlertDialog(
+		onDismissRequest = {
+			if (!isSubmitting) {
+				onDismiss()
+			}
+		},
+		title = { Text("Abenteuer bearbeiten") },
+		text = {
+			LazyColumn(
+				verticalArrangement = Arrangement.spacedBy(8.dp),
+			) {
+				item {
+					OutlinedTextField(
+						value = title,
+						onValueChange = {
+							title = it
+							errorMessage = null
+						},
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text("Titel") },
+						singleLine = true,
+					)
+				}
+				item {
+					OutlinedTextField(
+						value = summary,
+						onValueChange = {
+							summary = it
+							errorMessage = null
+						},
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text("Kurzbeschreibung") },
+					)
+				}
+				item {
+					OutlinedTextField(
+						value = difficulty,
+						onValueChange = { difficulty = it },
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text("Schwierigkeit (optional)") },
+						singleLine = true,
+					)
+				}
+				item {
+					OutlinedTextField(
+						value = durationMinutes,
+						onValueChange = { durationMinutes = it },
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text("Dauer in Minuten (optional)") },
+						singleLine = true,
+					)
+				}
+				item {
+					Text(
+						text = "Startpunkt",
+						style = MaterialTheme.typography.titleSmall,
+					)
+				}
+				item {
+					Button(
+						onClick = {
+							val location = currentLocation ?: return@Button
+							startLatitude = location.latitude.toString()
+							startLongitude = location.longitude.toString()
+							errorMessage = null
+						},
+						modifier = Modifier.fillMaxWidth(),
+						enabled = currentLocation != null,
+					) {
+						Text("Aktuellen Standort als Startpunkt nutzen")
+					}
+				}
+				item {
+					OutlinedTextField(
+						value = startLatitude,
+						onValueChange = { startLatitude = it },
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text("Start Latitude") },
+						singleLine = true,
+					)
+				}
+				item {
+					OutlinedTextField(
+						value = startLongitude,
+						onValueChange = { startLongitude = it },
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text("Start Longitude") },
+						singleLine = true,
+					)
+				}
+				item {
+					Text(
+						text = "Bisherige Orte",
+						style = MaterialTheme.typography.titleSmall,
+					)
+				}
+				if (isLoadingLocations) {
+					item {
+						Text("Orte werden geladen...", style = MaterialTheme.typography.bodySmall)
+					}
+				} else if (existingLocations.isEmpty()) {
+					item {
+						Text("Noch keine Orte gespeichert.", style = MaterialTheme.typography.bodySmall)
+					}
+				} else {
+					items(existingLocations, key = { it.orderIndex }) { location ->
+						Text(
+							text = "${location.orderIndex + 1}. ${location.name}",
+							style = MaterialTheme.typography.bodyMedium,
+						)
+					}
+				}
+				item {
+					Text(
+						text = "Neue Orte hinzufuegen",
+						style = MaterialTheme.typography.titleSmall,
+					)
+				}
+				item {
+					Button(
+						onClick = {
+							val location = currentLocation ?: return@Button
+							if (locationName.isBlank()) {
+								locationName = "Ort ${existingLocations.size + newLocations.size + 1}"
+							}
+							locationLatitude = location.latitude.toString()
+							locationLongitude = location.longitude.toString()
+							errorMessage = null
+						},
+						modifier = Modifier.fillMaxWidth(),
+						enabled = currentLocation != null,
+					) {
+						Text("Aktuellen Standort fuer Ort nutzen")
+					}
+				}
+				item {
+					OutlinedTextField(
+						value = locationName,
+						onValueChange = { locationName = it },
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text("Ort Name") },
+						singleLine = true,
+					)
+				}
+				item {
+					OutlinedTextField(
+						value = locationLatitude,
+						onValueChange = { locationLatitude = it },
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text("Ort Latitude") },
+						singleLine = true,
+					)
+				}
+				item {
+					OutlinedTextField(
+						value = locationLongitude,
+						onValueChange = { locationLongitude = it },
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text("Ort Longitude") },
+						singleLine = true,
+					)
+				}
+				item {
+					Button(
+						onClick = { addNewLocation() },
+						modifier = Modifier.fillMaxWidth(),
+						enabled = !isSubmitting,
+					) {
+						Text("Ort hinzufuegen")
+					}
+				}
+				if (newLocations.isNotEmpty()) {
+					item {
+						Text(
+							text = "Neu hinzugefuegte Orte",
+							style = MaterialTheme.typography.titleSmall,
+						)
+					}
+					items(newLocations, key = { it.name + it.point.latitude + it.point.longitude }) { location ->
+						Row(
+							modifier = Modifier.fillMaxWidth(),
+							horizontalArrangement = Arrangement.SpaceBetween,
+							verticalAlignment = Alignment.CenterVertically,
+						) {
+							Text(
+								text = location.name,
+								style = MaterialTheme.typography.bodyMedium,
+							)
+							TextButton(
+								onClick = { newLocations = newLocations - location },
+								enabled = !isSubmitting,
+							) {
+								Text("Entfernen")
+							}
+						}
+					}
+				}
+				if (errorMessage != null) {
+					item {
+						Text(
+							text = errorMessage.orEmpty(),
+							color = MaterialTheme.colorScheme.error,
+							style = MaterialTheme.typography.bodySmall,
+						)
+					}
+				}
+			}
+		},
+		confirmButton = {
+			Button(
+				onClick = {
+					val parsedStartLatitude = startLatitude.toDoubleOrNull()
+					val parsedStartLongitude = startLongitude.toDoubleOrNull()
+					val parsedDuration = durationMinutes.toIntOrNull()
+
+					when {
+						title.isBlank() -> errorMessage = "Bitte gib einen Titel ein."
+						summary.isBlank() -> errorMessage = "Bitte gib eine Kurzbeschreibung ein."
+						parsedStartLatitude == null || parsedStartLongitude == null -> {
+							errorMessage = "Bitte gib gueltige Startkoordinaten ein."
+						}
+						!isValidLatitude(parsedStartLatitude) || !isValidLongitude(parsedStartLongitude) -> {
+							errorMessage = "Startkoordinaten muessen in gueltigen Bereichen liegen."
+						}
+						parsedDuration != null && parsedDuration <= 0 -> {
+							errorMessage = "Die Dauer muss groesser als 0 sein."
+						}
+						else -> {
+							errorMessage = null
+							isSubmitting = true
+							scope.launch {
+								runCatching {
+									updateAdventure(
+										adventureId = adventure.id,
+										draft = AdventureMetadataDraft(
+											title = title.trim(),
+											summary = summary.trim(),
+											startPoint = GeoPoint(
+												latitude = parsedStartLatitude,
+												longitude = parsedStartLongitude,
+											),
+											difficulty = difficulty.takeIf { it.isNotBlank() }?.trim(),
+											estimatedDurationMinutes = parsedDuration,
+										),
+									)
+
+									if (newLocations.isNotEmpty()) {
+										appendAdventureLocations(adventure.id, newLocations)
+									}
+								}.onSuccess {
+									onAdventureUpdated()
+									onDismiss()
+								}.onFailure { throwable ->
+									errorMessage = throwable.message ?: "Abenteuer konnte nicht aktualisiert werden."
+								}
+								isSubmitting = false
+							}
+						}
+					}
+				},
+				enabled = !isSubmitting,
+			) {
+				if (isSubmitting) {
+					CircularProgressIndicator(
+						modifier = Modifier.size(18.dp),
+						strokeWidth = 2.dp,
+					)
+				} else {
+					Text("Speichern")
+				}
+			}
+		},
+		dismissButton = {
+			TextButton(onClick = onDismiss, enabled = !isSubmitting) {
+				Text("Abbrechen")
+			}
+		},
+	)
+}
+
 private fun isValidLatitude(value: Double): Boolean = value in -90.0..90.0
 
 private fun isValidLongitude(value: Double): Boolean = value in -180.0..180.0
@@ -557,6 +917,7 @@ fun AdventureListScreen(
 	currentLocation: GeoPoint?,
 	onNavigateToStart: (Adventure) -> Unit,
 	onCreateAdventure: () -> Unit,
+	onEditAdventure: (Adventure) -> Unit,
 	adventures: List<Adventure>,
 ) {
 	val visibleAdventures = remember(searchQuery, currentLocation, adventures) {
@@ -608,6 +969,7 @@ fun AdventureListScreen(
 						adventure = adventure,
 						currentLocation = currentLocation,
 						onNavigateToStart = { onNavigateToStart(adventure) },
+						onEditAdventure = { onEditAdventure(adventure) },
 					)
 				}
 			}
@@ -630,6 +992,7 @@ private fun AdventureCard(
 	adventure: Adventure,
 	currentLocation: GeoPoint?,
 	onNavigateToStart: () -> Unit,
+	onEditAdventure: () -> Unit,
 ) {
 	Card(
 		modifier = Modifier.fillMaxWidth(),
@@ -669,8 +1032,8 @@ private fun AdventureCard(
 				Button(onClick = onNavigateToStart) {
 					Text("Zum Startpunkt")
 				}
-				OutlinedButton(onClick = { }, enabled = false) {
-					Text("Noch offen")
+				OutlinedButton(onClick = onEditAdventure) {
+					Text("Bearbeiten")
 				}
 			}
 		}
