@@ -222,6 +222,7 @@ fun App() {
 
 		if (showCreateAdventureDialog) {
 			CreateAdventureDialog(
+				currentLocation = currentLocation,
 				onDismiss = { showCreateAdventureDialog = false },
 				onAdventureCreated = {
 					adventureRefreshKey += 1
@@ -233,6 +234,7 @@ fun App() {
 
 @Composable
 private fun CreateAdventureDialog(
+	currentLocation: GeoPoint?,
 	onDismiss: () -> Unit,
 	onAdventureCreated: (Adventure) -> Unit,
 ) {
@@ -289,6 +291,15 @@ private fun CreateAdventureDialog(
 			LazyColumn(
 				verticalArrangement = Arrangement.spacedBy(8.dp),
 			) {
+				if (currentLocation == null) {
+					item {
+						Text(
+							text = "Kein aktueller Standort verfuegbar. Oeffne kurz die Kartenansicht, damit GPS geladen wird.",
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
+				}
 				item {
 					OutlinedTextField(
 						value = title,
@@ -337,6 +348,20 @@ private fun CreateAdventureDialog(
 					)
 				}
 				item {
+					Button(
+						onClick = {
+							val location = currentLocation ?: return@Button
+							startLatitude = location.latitude.toString()
+							startLongitude = location.longitude.toString()
+							errorMessage = null
+						},
+						modifier = Modifier.fillMaxWidth(),
+						enabled = currentLocation != null,
+					) {
+						Text("Aktuellen Standort als Startpunkt nutzen")
+					}
+				}
+				item {
 					OutlinedTextField(
 						value = startLatitude,
 						onValueChange = { startLatitude = it },
@@ -359,6 +384,23 @@ private fun CreateAdventureDialog(
 						text = "Orte fuer das Abenteuer",
 						style = MaterialTheme.typography.titleSmall,
 					)
+				}
+				item {
+					Button(
+						onClick = {
+							val location = currentLocation ?: return@Button
+							if (locationName.isBlank()) {
+								locationName = "Ort ${locations.size + 1}"
+							}
+							locationLatitude = location.latitude.toString()
+							locationLongitude = location.longitude.toString()
+							errorMessage = null
+						},
+						modifier = Modifier.fillMaxWidth(),
+						enabled = currentLocation != null,
+					) {
+						Text("Aktuellen Standort fuer Ort nutzen")
+					}
 				}
 				item {
 					OutlinedTextField(
