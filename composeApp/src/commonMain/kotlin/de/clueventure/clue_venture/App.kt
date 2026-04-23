@@ -1,5 +1,10 @@
 package de.clueventure.clue_venture
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +39,8 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -187,11 +194,18 @@ fun App() {
 	var adventurePendingStart by remember { mutableStateOf<Adventure?>(null) }
 	var isStartingAdventure by remember { mutableStateOf(false) }
 	var startErrorMessage by remember { mutableStateOf<String?>(null) }
+	var activeAdventureForOverlay by remember { mutableStateOf<Adventure?>(null) }
+	var isAdventureOverlayExpanded by remember { mutableStateOf(true) }
+	var showEndAdventureConfirmation by remember { mutableStateOf(false) }
 	var adventureRefreshKey by remember { mutableStateOf(0) }
+	val snackbarHostState = remember { SnackbarHostState() }
 
 	MaterialTheme {
 		Scaffold(
 			contentWindowInsets = WindowInsets(0, 0, 0, 0),
+			snackbarHost = {
+				SnackbarHost(hostState = snackbarHostState)
+			},
 			bottomBar = {
 				if (editingAdventure == null && !showCreateAdventureDialog) {
 					NavigationBar(
@@ -249,6 +263,8 @@ fun App() {
 					onNavigateToStart = { adventure ->
 						routedAdventureId = adventure.id
 						routeTargets = listOf(adventure.startPoint)
+						activeAdventureForOverlay = null
+						showEndAdventureConfirmation = false
 						selectedTab = BottomTab.Map
 						appScope.launch {
 							val locations = getAdventureLocations(adventure.id)
@@ -271,13 +287,35 @@ fun App() {
 					},
 				)
 
-				BottomTab.Map -> PlatformMap(
+				BottomTab.Map -> Box(
 					modifier = Modifier
 						.fillMaxSize()
 						.padding(innerPadding),
-					routeTargets = routeTargets,
-					onCurrentLocationChanged = { currentLocation = it },
-				)
+				) {
+					PlatformMap(
+						modifier = Modifier.fillMaxSize(),
+						routeTargets = routeTargets,
+						onCurrentLocationChanged = { currentLocation = it },
+					)
+
+					activeAdventureForOverlay?.let { adventure ->
+						ActiveAdventureOverlay(
+							adventure = adventure,
+							isExpanded = isAdventureOverlayExpanded,
+							onToggleExpanded = {
+								isAdventureOverlayExpanded = !isAdventureOverlayExpanded
+							},
+							onEndAdventure = {
+								showEndAdventureConfirmation = true
+							},
+							modifier = Modifier
+								.align(Alignment.TopCenter)
+								.fillMaxWidth()
+								.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+								.padding(horizontal = 12.dp, vertical = 8.dp),
+						)
+					}
+				}
 
 				BottomTab.Right -> Box(modifier = Modifier.fillMaxSize())
 			}
@@ -320,6 +358,8 @@ fun App() {
 									if (routedAdventureId == adventure.id) {
 										routeTargets = emptyList()
 										routedAdventureId = null
+										activeAdventureForOverlay = null
+										showEndAdventureConfirmation = false
 									}
 									if (editingAdventure?.id == adventure.id) {
 										editingAdventure = null
@@ -406,9 +446,12 @@ fun App() {
 									val locations = getAdventureLocations(adventure.id)
 									routedAdventureId = adventure.id
 									routeTargets = listOf(adventure.startPoint) + locations.map { it.point }
+									activeAdventureForOverlay = adventure
+									isAdventureOverlayExpanded = true
 									selectedTab = BottomTab.Map
 								}.onSuccess {
 									adventurePendingStart = null
+									snackbarHostState.showSnackbar("Abenteuer gestartet: ${adventure.title}")
 								}.onFailure { throwable ->
 									startErrorMessage = throwable.message ?: "Abenteuer konnte nicht gestartet werden."
 								}
@@ -433,6 +476,37 @@ fun App() {
 						onClick = { adventurePendingStart = null },
 						enabled = !isStartingAdventure,
 					) {
+						Text("Abbrechen")
+					}
+				},
+			)
+		}
+
+		if (showEndAdventureConfirmation) {
+			AlertDialog(
+				onDismissRequest = { showEndAdventureConfirmation = false },
+				title = { Text("Abenteuer beenden") },
+				text = {
+					Text("Willst du das laufende Abenteuer wirklich beenden?")
+				},
+				confirmButton = {
+					Button(
+						onClick = {
+							routeTargets = emptyList()
+							routedAdventureId = null
+							activeAdventureForOverlay = null
+							isAdventureOverlayExpanded = true
+							showEndAdventureConfirmation = false
+							appScope.launch {
+								snackbarHostState.showSnackbar("Abenteuer beendet")
+							}
+						},
+					) {
+						Text("Beenden")
+					}
+				},
+				dismissButton = {
+					TextButton(onClick = { showEndAdventureConfirmation = false }) {
 						Text("Abbrechen")
 					}
 				},
@@ -1406,6 +1480,73 @@ private fun MapPointPickerScreen(
 			selectedPoint = selectedPoint,
 			onMapPointSelected = onPointSelected,
 		)
+	}
+}
+
+@Composable
+private fun ActiveAdventureOverlay(
+	adventure: Adventure,
+	isExpanded: Boolean,
+	onToggleExpanded: () -> Unit,
+	onEndAdventure: () -> Unit,
+	modifier: Modifier = Modifier,
+) {
+	Card(
+		modifier = modifier,
+		colors = CardDefaults.cardColors(
+			containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+		),
+	) {
+		Column(
+			modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+			verticalArrangement = Arrangement.spacedBy(8.dp),
+		) {
+			Row(
+				modifier = Modifier.fillMaxWidth(),
+				horizontalArrangement = Arrangement.spacedBy(8.dp),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				Column(modifier = Modifier.weight(1f)) {
+					Text(
+						text = adventure.title,
+						style = MaterialTheme.typography.titleMedium,
+					)
+					Text(
+						text = buildMetadataLabel(adventure).ifBlank { "Schwierigkeit und Dauer nicht gesetzt" },
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
+				TextButton(onClick = onEndAdventure) {
+					Text("Beenden")
+				}
+				TextButton(onClick = onToggleExpanded) {
+					Text(if (isExpanded) "Ausblenden" else "Einblenden")
+				}
+			}
+
+			AnimatedVisibility(
+				visible = isExpanded,
+				enter = slideInVertically { -it / 2 } + fadeIn(),
+				exit = slideOutVertically { -it / 2 } + fadeOut(),
+			) {
+				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+					Text(
+						text = "Hinweis: Schau nach auffaelligen Markierungen in der Naehe des Startpunkts.",
+						style = MaterialTheme.typography.bodySmall,
+					)
+					Text(
+						text = "Raetsel: Welche Zahl ergibt sich aus den sichtbaren Hausnummern an der Ecke?",
+						style = MaterialTheme.typography.bodySmall,
+					)
+					Text(
+						text = "Status: Demo-Inhalte aktiv. Echte Hinweise koennen spaeter aus dem Backend geladen werden.",
+						style = MaterialTheme.typography.labelSmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
+			}
+		}
 	}
 }
 
