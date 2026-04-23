@@ -163,6 +163,11 @@ private enum class BottomTab(
 	Right(icon = BottomBarIcons.Right, contentDescription = "Menue rechts"),
 }
 
+private enum class MapPickerTarget {
+	StartPoint,
+	AdventureLocation,
+}
+
 @Composable
 @Preview
 fun App() {
@@ -364,6 +369,8 @@ private fun CreateAdventureScreen(
 
 	var isSubmitting by remember { mutableStateOf(false) }
 	var errorMessage by remember { mutableStateOf<String?>(null) }
+	var mapPickerTarget by remember { mutableStateOf<MapPickerTarget?>(null) }
+	var mapPickedPoint by remember { mutableStateOf<GeoPoint?>(null) }
 
 	fun addLocation() {
 		val parsedLatitude = locationLatitude.toDoubleOrNull()
@@ -437,6 +444,45 @@ private fun CreateAdventureScreen(
 				}
 			}
 		}
+	}
+
+	if (mapPickerTarget != null) {
+		MapPointPickerScreen(
+			modifier = modifier,
+			title = when (mapPickerTarget) {
+				MapPickerTarget.StartPoint -> "Startpunkt auf Karte waehlen"
+				MapPickerTarget.AdventureLocation -> "Ort auf Karte waehlen"
+				null -> "Ort auf Karte waehlen"
+			},
+			selectedPoint = mapPickedPoint,
+			onCancel = {
+				mapPickerTarget = null
+				mapPickedPoint = null
+			},
+			onPointSelected = { selected ->
+				mapPickedPoint = selected
+			},
+			onConfirm = { selected ->
+				when (mapPickerTarget) {
+					MapPickerTarget.StartPoint -> {
+						startLatitude = selected.latitude.toString()
+						startLongitude = selected.longitude.toString()
+					}
+					MapPickerTarget.AdventureLocation -> {
+						if (locationName.isBlank()) {
+							locationName = "Ort ${locations.size + 1}"
+						}
+						locationLatitude = selected.latitude.toString()
+						locationLongitude = selected.longitude.toString()
+					}
+					null -> Unit
+				}
+				errorMessage = null
+				mapPickerTarget = null
+				mapPickedPoint = null
+			},
+		)
+		return
 	}
 
 	Column(
@@ -548,6 +594,18 @@ private fun CreateAdventureScreen(
 					}
 				}
 				item {
+					Button(
+						onClick = {
+							mapPickedPoint = parseGeoPoint(startLatitude, startLongitude)
+							mapPickerTarget = MapPickerTarget.StartPoint
+						},
+						modifier = Modifier.fillMaxWidth(),
+						enabled = !isSubmitting,
+					) {
+						Text("Startpunkt auf Karte waehlen")
+					}
+				}
+				item {
 					OutlinedTextField(
 						value = startLatitude,
 						onValueChange = { startLatitude = it },
@@ -586,6 +644,18 @@ private fun CreateAdventureScreen(
 						enabled = currentLocation != null,
 					) {
 						Text("Aktuellen Standort fuer Ort nutzen")
+					}
+				}
+				item {
+					Button(
+						onClick = {
+							mapPickedPoint = parseGeoPoint(locationLatitude, locationLongitude)
+							mapPickerTarget = MapPickerTarget.AdventureLocation
+						},
+						modifier = Modifier.fillMaxWidth(),
+						enabled = !isSubmitting,
+					) {
+						Text("Ort auf Karte waehlen")
 					}
 				}
 				item {
@@ -711,6 +781,8 @@ private fun EditAdventureScreen(
 	var isLoadingLocations by remember(adventure.id) { mutableStateOf(true) }
 	var isSubmitting by remember(adventure.id) { mutableStateOf(false) }
 	var errorMessage by remember(adventure.id) { mutableStateOf<String?>(null) }
+	var mapPickerTarget by remember(adventure.id) { mutableStateOf<MapPickerTarget?>(null) }
+	var mapPickedPoint by remember(adventure.id) { mutableStateOf<GeoPoint?>(null) }
 
 	LaunchedEffect(adventure.id) {
 		isLoadingLocations = true
@@ -837,6 +909,45 @@ private fun EditAdventureScreen(
 		}
 	}
 
+	if (mapPickerTarget != null) {
+		MapPointPickerScreen(
+			modifier = modifier,
+			title = when (mapPickerTarget) {
+				MapPickerTarget.StartPoint -> "Startpunkt auf Karte waehlen"
+				MapPickerTarget.AdventureLocation -> "Ort auf Karte waehlen"
+				null -> "Ort auf Karte waehlen"
+			},
+			selectedPoint = mapPickedPoint,
+			onCancel = {
+				mapPickerTarget = null
+				mapPickedPoint = null
+			},
+			onPointSelected = { selected ->
+				mapPickedPoint = selected
+			},
+			onConfirm = { selected ->
+				when (mapPickerTarget) {
+					MapPickerTarget.StartPoint -> {
+						startLatitude = selected.latitude.toString()
+						startLongitude = selected.longitude.toString()
+					}
+					MapPickerTarget.AdventureLocation -> {
+						if (locationName.isBlank()) {
+							locationName = "Ort ${orderedLocations.size + 1}"
+						}
+						locationLatitude = selected.latitude.toString()
+						locationLongitude = selected.longitude.toString()
+					}
+					null -> Unit
+				}
+				errorMessage = null
+				mapPickerTarget = null
+				mapPickedPoint = null
+			},
+		)
+		return
+	}
+
 	Column(
 		modifier = modifier
 			.fillMaxSize()
@@ -934,6 +1045,18 @@ private fun EditAdventureScreen(
 						enabled = currentLocation != null,
 					) {
 						Text("Aktuellen Standort als Startpunkt nutzen")
+					}
+				}
+				item {
+					Button(
+						onClick = {
+							mapPickedPoint = parseGeoPoint(startLatitude, startLongitude)
+							mapPickerTarget = MapPickerTarget.StartPoint
+						},
+						modifier = Modifier.fillMaxWidth(),
+						enabled = !isSubmitting,
+					) {
+						Text("Startpunkt auf Karte waehlen")
 					}
 				}
 				item {
@@ -1073,6 +1196,18 @@ private fun EditAdventureScreen(
 					}
 				}
 				item {
+					Button(
+						onClick = {
+							mapPickedPoint = parseGeoPoint(locationLatitude, locationLongitude)
+							mapPickerTarget = MapPickerTarget.AdventureLocation
+						},
+						modifier = Modifier.fillMaxWidth(),
+						enabled = !isSubmitting,
+					) {
+						Text("Ort auf Karte waehlen")
+					}
+				}
+				item {
 					OutlinedTextField(
 						value = locationName,
 						onValueChange = { locationName = it },
@@ -1121,6 +1256,64 @@ private fun EditAdventureScreen(
 		}
 	}
 
+@Composable
+private fun MapPointPickerScreen(
+	modifier: Modifier = Modifier,
+	title: String,
+	selectedPoint: GeoPoint?,
+	onCancel: () -> Unit,
+	onPointSelected: (GeoPoint) -> Unit,
+	onConfirm: (GeoPoint) -> Unit,
+) {
+	Column(
+		modifier = modifier
+			.fillMaxSize()
+			.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)),
+	) {
+		Row(
+			modifier = Modifier
+				.fillMaxWidth()
+				.padding(horizontal = 16.dp, vertical = 12.dp),
+			horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			Text(
+				text = title,
+				style = MaterialTheme.typography.titleMedium,
+				modifier = Modifier.weight(1f),
+			)
+			TextButton(onClick = onCancel) {
+				Text("Abbrechen")
+			}
+			Button(
+				onClick = {
+					selectedPoint?.let(onConfirm)
+				},
+				enabled = selectedPoint != null,
+			) {
+				Text("Uebernehmen")
+			}
+		}
+
+		Text(
+			text = "Tippe auf die Karte, um Koordinaten zu setzen.",
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			modifier = Modifier.padding(horizontal = 16.dp),
+		)
+
+		PlatformMap(
+			modifier = Modifier
+				.fillMaxWidth()
+				.weight(1f)
+				.padding(top = 8.dp),
+			enablePointSelection = true,
+			selectedPoint = selectedPoint,
+			onMapPointSelected = onPointSelected,
+		)
+	}
+}
+
 private sealed interface EditLocationItem {
 	val key: String
 
@@ -1147,6 +1340,17 @@ private fun <T> List<T>.move(fromIndex: Int, toIndex: Int): List<T> {
 private fun isValidLatitude(value: Double): Boolean = value in -90.0..90.0
 
 private fun isValidLongitude(value: Double): Boolean = value in -180.0..180.0
+
+private fun parseGeoPoint(latitudeText: String, longitudeText: String): GeoPoint? {
+	val latitude = latitudeText.toDoubleOrNull() ?: return null
+	val longitude = longitudeText.toDoubleOrNull() ?: return null
+
+	if (!isValidLatitude(latitude) || !isValidLongitude(longitude)) {
+		return null
+	}
+
+	return GeoPoint(latitude = latitude, longitude = longitude)
+}
 
 @Composable
 fun AdventureListScreen(

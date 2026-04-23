@@ -13,12 +13,20 @@ actual fun PlatformMap(
     modifier: Modifier,
     routeTargets: List<GeoPoint>,
     onCurrentLocationChanged: (GeoPoint?) -> Unit,
+    enablePointSelection: Boolean,
+    selectedPoint: GeoPoint?,
+    onMapPointSelected: (GeoPoint) -> Unit,
 ) {
     Box(
         modifier = modifier
             .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
-        Text("Map is available on Android (${routeTargets.size} Ziele geladen)")
+        val selectionText = if (enablePointSelection) {
+            " | Kartenwahl auf Android"
+        } else {
+            ""
+        }
+        Text("Map is available on Android (${routeTargets.size} Ziele geladen$selectionText)")
     }
 }

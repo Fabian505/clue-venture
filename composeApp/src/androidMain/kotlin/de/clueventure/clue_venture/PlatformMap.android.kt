@@ -75,6 +75,8 @@ private const val ROUTE_SOURCE_ID = "adventure-route-source"
 private const val ROUTE_LAYER_ID = "adventure-route-layer"
 private const val ROUTE_TARGET_SOURCE_ID = "adventure-route-target-source"
 private const val ROUTE_TARGET_LAYER_ID = "adventure-route-target-layer"
+private const val PICKER_SOURCE_ID = "map-picker-source"
+private const val PICKER_LAYER_ID = "map-picker-layer"
 
 @Composable
 @Suppress("CognitiveComplexity")
@@ -82,6 +84,9 @@ actual fun PlatformMap(
     modifier: Modifier,
     routeTargets: List<GeoPoint>,
     onCurrentLocationChanged: (GeoPoint?) -> Unit,
+    enablePointSelection: Boolean,
+    selectedPoint: GeoPoint?,
+    onMapPointSelected: (GeoPoint) -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -114,17 +119,43 @@ actual fun PlatformMap(
                 map.setStyle("asset://style.json") { style ->
                     ensureLocationLayer(style)
                     ensureRouteLayers(style)
+                    ensurePickerLayer(style)
                     applyRouteOverlay(style, routePoints, routeTargets)
+                    applyPickerOverlay(style, if (enablePointSelection) selectedPoint else null)
                 }
             }
         }
     }
 
-    LaunchedEffect(mapLibreMap, routeTargets, latestLocation, routePoints) {
+    LaunchedEffect(mapLibreMap, routeTargets, latestLocation, routePoints, selectedPoint, enablePointSelection) {
         val map = mapLibreMap ?: return@LaunchedEffect
         map.getStyle { style ->
             ensureRouteLayers(style)
+            ensurePickerLayer(style)
             applyRouteOverlay(style, routePoints, routeTargets)
+            applyPickerOverlay(style, if (enablePointSelection) selectedPoint else null)
+        }
+    }
+
+    DisposableEffect(mapLibreMap, enablePointSelection, onMapPointSelected) {
+        val map = mapLibreMap
+        if (map == null || !enablePointSelection) {
+            return@DisposableEffect onDispose { }
+        }
+
+        val listener = MapLibreMap.OnMapClickListener { latLng ->
+            onMapPointSelected(
+                GeoPoint(
+                    latitude = latLng.latitude,
+                    longitude = latLng.longitude,
+                ),
+            )
+            true
+        }
+        map.addOnMapClickListener(listener)
+
+        onDispose {
+            map.removeOnMapClickListener(listener)
         }
     }
 
@@ -421,6 +452,24 @@ private fun ensureRouteLayers(style: Style) {
     }
 }
 
+private fun ensurePickerLayer(style: Style) {
+    if (style.getSource(PICKER_SOURCE_ID) == null) {
+        style.addSource(GeoJsonSource(PICKER_SOURCE_ID, FeatureCollection.fromFeatures(arrayOf())))
+    }
+
+    if (style.getLayer(PICKER_LAYER_ID) == null) {
+        style.addLayer(
+            CircleLayer(PICKER_LAYER_ID, PICKER_SOURCE_ID)
+                .withProperties(
+                    circleRadius(8f),
+                    circleColor("#2E7D32"),
+                    circleStrokeColor("#FFFFFF"),
+                    circleStrokeWidth(2f),
+                ),
+        )
+    }
+}
+
 private fun applyRouteOverlay(style: Style, routePoints: List<GeoPoint>, routeTargets: List<GeoPoint>) {
     val routeSource = style.getSourceAs<GeoJsonSource>(ROUTE_SOURCE_ID) ?: return
     val routeTargetSource = style.getSourceAs<GeoJsonSource>(ROUTE_TARGET_SOURCE_ID) ?: return
@@ -449,6 +498,21 @@ private fun applyRouteOverlay(style: Style, routePoints: List<GeoPoint>, routeTa
             LineString.fromLngLats(
                 routePoints.map { point -> Point.fromLngLat(point.longitude, point.latitude) },
             ),
+        ),
+    )
+}
+
+private fun applyPickerOverlay(style: Style, selectedPoint: GeoPoint?) {
+    val pickerSource = style.getSourceAs<GeoJsonSource>(PICKER_SOURCE_ID) ?: return
+
+    if (selectedPoint == null) {
+        pickerSource.setGeoJson(FeatureCollection.fromFeatures(arrayOf()))
+        return
+    }
+
+    pickerSource.setGeoJson(
+        Feature.fromGeometry(
+            Point.fromLngLat(selectedPoint.longitude, selectedPoint.latitude),
         ),
     )
 }

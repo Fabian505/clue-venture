@@ -8,4 +8,7 @@ expect fun PlatformMap(
 	modifier: Modifier = Modifier,
 	routeTargets: List<GeoPoint> = emptyList(),
 	onCurrentLocationChanged: (GeoPoint?) -> Unit = {},
+	enablePointSelection: Boolean = false,
+	selectedPoint: GeoPoint? = null,
+	onMapPointSelected: (GeoPoint) -> Unit = {},
 )
