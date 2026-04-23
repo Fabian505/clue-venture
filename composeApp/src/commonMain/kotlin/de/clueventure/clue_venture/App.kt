@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -460,21 +461,43 @@ private fun CreateAdventureDialog(
 							style = MaterialTheme.typography.titleSmall,
 						)
 					}
-					items(items = locations, key = { it.name + it.point.latitude + it.point.longitude }) { location ->
+					itemsIndexed(items = locations, key = { _, location -> location.name + location.point.latitude + location.point.longitude }) { index, location ->
 						Row(
 							modifier = Modifier.fillMaxWidth(),
 							horizontalArrangement = Arrangement.SpaceBetween,
 							verticalAlignment = Alignment.CenterVertically,
 						) {
 							Text(
-								text = location.name,
+								text = "${index + 1}. ${location.name}",
 								style = MaterialTheme.typography.bodyMedium,
 							)
-							TextButton(
-								onClick = { locations = locations - location },
-								enabled = !isSubmitting,
-							) {
-								Text("Entfernen")
+							Row(verticalAlignment = Alignment.CenterVertically) {
+								TextButton(
+									onClick = {
+										if (index > 0) {
+											locations = locations.move(index, index - 1)
+										}
+									},
+									enabled = !isSubmitting && index > 0,
+								) {
+									Text("Hoch")
+								}
+								TextButton(
+									onClick = {
+										if (index < locations.lastIndex) {
+											locations = locations.move(index, index + 1)
+										}
+									},
+									enabled = !isSubmitting && index < locations.lastIndex,
+								) {
+									Text("Runter")
+								}
+								TextButton(
+									onClick = { locations = locations - location },
+									enabled = !isSubmitting,
+								) {
+									Text("Entfernen")
+								}
 							}
 						}
 					}
@@ -580,9 +603,9 @@ private fun EditAdventureDialog(
 	var locationName by remember(adventure.id) { mutableStateOf("") }
 	var locationLatitude by remember(adventure.id) { mutableStateOf("") }
 	var locationLongitude by remember(adventure.id) { mutableStateOf("") }
-	var existingLocations by remember(adventure.id) { mutableStateOf<List<AdventureLocation>>(emptyList()) }
-	var removedExistingLocationOrderIndexes by remember(adventure.id) { mutableStateOf<Set<Int>>(emptySet()) }
-	var newLocations by remember(adventure.id) { mutableStateOf<List<AdventureLocationDraft>>(emptyList()) }
+	var orderedLocations by remember(adventure.id) { mutableStateOf<List<EditLocationItem>>(emptyList()) }
+	var removedExistingLocations by remember(adventure.id) { mutableStateOf<List<AdventureLocation>>(emptyList()) }
+	var nextNewLocationId by remember(adventure.id) { mutableStateOf(0) }
 
 	var isLoadingLocations by remember(adventure.id) { mutableStateOf(true) }
 	var isSubmitting by remember(adventure.id) { mutableStateOf(false) }
@@ -591,22 +614,18 @@ private fun EditAdventureDialog(
 	LaunchedEffect(adventure.id) {
 		isLoadingLocations = true
 		errorMessage = null
-		removedExistingLocationOrderIndexes = emptySet()
+		removedExistingLocations = emptyList()
+		nextNewLocationId = 0
 		runCatching {
 			getAdventureLocations(adventure.id)
 		}.onSuccess { locations ->
-			existingLocations = locations.sortedBy { it.orderIndex }
+			orderedLocations = locations
+				.sortedBy { it.orderIndex }
+				.map { location -> EditLocationItem.Existing(location) }
 		}.onFailure {
 			errorMessage = "Orte konnten nicht geladen werden."
 		}
 		isLoadingLocations = false
-	}
-
-	val visibleExistingLocations = existingLocations.filterNot { location ->
-		removedExistingLocationOrderIndexes.contains(location.orderIndex)
-	}
-	val removedExistingLocations = existingLocations.filter { location ->
-		removedExistingLocationOrderIndexes.contains(location.orderIndex)
 	}
 
 	fun addNewLocation() {
@@ -623,10 +642,14 @@ private fun EditAdventureDialog(
 			}
 			else -> {
 				errorMessage = null
-				newLocations = newLocations + AdventureLocationDraft(
-					name = locationName.trim(),
-					point = GeoPoint(latitude = parsedLatitude, longitude = parsedLongitude),
+				orderedLocations = orderedLocations + EditLocationItem.New(
+					localId = nextNewLocationId,
+					draft = AdventureLocationDraft(
+						name = locationName.trim(),
+						point = GeoPoint(latitude = parsedLatitude, longitude = parsedLongitude),
+					),
 				)
+				nextNewLocationId += 1
 				locationName = ""
 				locationLatitude = ""
 				locationLongitude = ""
@@ -726,7 +749,7 @@ private fun EditAdventureDialog(
 				}
 				item {
 					Text(
-						text = "Bisherige Orte",
+						text = "Orte in Reihenfolge",
 						style = MaterialTheme.typography.titleSmall,
 					)
 				}
@@ -734,28 +757,58 @@ private fun EditAdventureDialog(
 					item {
 						Text("Orte werden geladen...", style = MaterialTheme.typography.bodySmall)
 					}
-				} else if (visibleExistingLocations.isEmpty()) {
+				} else if (orderedLocations.isEmpty()) {
 					item {
 						Text("Noch keine Orte gespeichert.", style = MaterialTheme.typography.bodySmall)
 					}
 				} else {
-					items(visibleExistingLocations, key = { it.orderIndex }) { location ->
+					itemsIndexed(orderedLocations, key = { _, locationItem -> locationItem.key }) { index, locationItem ->
+						val locationNameText = when (locationItem) {
+							is EditLocationItem.Existing -> locationItem.location.name
+							is EditLocationItem.New -> locationItem.draft.name
+						}
 						Row(
 							modifier = Modifier.fillMaxWidth(),
 							horizontalArrangement = Arrangement.SpaceBetween,
 							verticalAlignment = Alignment.CenterVertically,
 						) {
 							Text(
-								text = "${location.orderIndex + 1}. ${location.name}",
+								text = "${index + 1}. $locationNameText",
 								style = MaterialTheme.typography.bodyMedium,
 							)
-							TextButton(
-								onClick = {
-									removedExistingLocationOrderIndexes = removedExistingLocationOrderIndexes + location.orderIndex
-								},
-								enabled = !isSubmitting,
-							) {
-								Text("Entfernen")
+							Row(verticalAlignment = Alignment.CenterVertically) {
+								TextButton(
+									onClick = {
+										if (index > 0) {
+											orderedLocations = orderedLocations.move(index, index - 1)
+										}
+									},
+									enabled = !isSubmitting && index > 0,
+								) {
+									Text("Hoch")
+								}
+								TextButton(
+									onClick = {
+										if (index < orderedLocations.lastIndex) {
+											orderedLocations = orderedLocations.move(index, index + 1)
+										}
+									},
+									enabled = !isSubmitting && index < orderedLocations.lastIndex,
+								) {
+									Text("Runter")
+								}
+								TextButton(
+									onClick = {
+										orderedLocations = orderedLocations - locationItem
+										if (locationItem is EditLocationItem.Existing) {
+											removedExistingLocations = (removedExistingLocations + locationItem.location)
+												.sortedBy { it.orderIndex }
+										}
+									},
+									enabled = !isSubmitting,
+								) {
+									Text("Entfernen")
+								}
 							}
 						}
 					}
@@ -779,7 +832,8 @@ private fun EditAdventureDialog(
 							)
 							TextButton(
 								onClick = {
-									removedExistingLocationOrderIndexes = removedExistingLocationOrderIndexes - location.orderIndex
+									removedExistingLocations = removedExistingLocations.filterNot { it.orderIndex == location.orderIndex }
+									orderedLocations = orderedLocations + EditLocationItem.Existing(location)
 								},
 								enabled = !isSubmitting,
 							) {
@@ -799,7 +853,7 @@ private fun EditAdventureDialog(
 						onClick = {
 							val location = currentLocation ?: return@Button
 							if (locationName.isBlank()) {
-								locationName = "Ort ${visibleExistingLocations.size + newLocations.size + 1}"
+								locationName = "Ort ${orderedLocations.size + 1}"
 							}
 							locationLatitude = location.latitude.toString()
 							locationLongitude = location.longitude.toString()
@@ -847,32 +901,6 @@ private fun EditAdventureDialog(
 						Text("Ort hinzufuegen")
 					}
 				}
-				if (newLocations.isNotEmpty()) {
-					item {
-						Text(
-							text = "Neu hinzugefuegte Orte",
-							style = MaterialTheme.typography.titleSmall,
-						)
-					}
-					items(newLocations, key = { it.name + it.point.latitude + it.point.longitude }) { location ->
-						Row(
-							modifier = Modifier.fillMaxWidth(),
-							horizontalArrangement = Arrangement.SpaceBetween,
-							verticalAlignment = Alignment.CenterVertically,
-						) {
-							Text(
-								text = location.name,
-								style = MaterialTheme.typography.bodyMedium,
-							)
-							TextButton(
-								onClick = { newLocations = newLocations - location },
-								enabled = !isSubmitting,
-							) {
-								Text("Entfernen")
-							}
-						}
-					}
-				}
 				if (errorMessage != null) {
 					item {
 						Text(
@@ -908,6 +936,13 @@ private fun EditAdventureDialog(
 							isSubmitting = true
 							scope.launch {
 								runCatching {
+									val removedOrderIndexes = removedExistingLocations.map { it.orderIndex }
+									val newLocationItems = orderedLocations.mapNotNull { locationItem ->
+										locationItem as? EditLocationItem.New
+									}
+									val newLocationDrafts = newLocationItems.map { it.draft }
+									val appendedOrderIndexesByLocalId = mutableMapOf<Int, Int>()
+
 									updateAdventure(
 										adventureId = adventure.id,
 										draft = AdventureMetadataDraft(
@@ -922,16 +957,29 @@ private fun EditAdventureDialog(
 										),
 									)
 
-									if (removedExistingLocationOrderIndexes.isNotEmpty()) {
-										removedExistingLocationOrderIndexes
-											.sorted()
-											.forEach { orderIndex ->
-												deleteAdventureLocation(adventure.id, orderIndex)
-											}
+									if (removedOrderIndexes.isNotEmpty()) {
+										removedOrderIndexes.sorted().forEach { orderIndex ->
+											deleteAdventureLocation(adventure.id, orderIndex)
+										}
 									}
 
-									if (newLocations.isNotEmpty()) {
-										appendAdventureLocations(adventure.id, newLocations)
+									if (newLocationDrafts.isNotEmpty()) {
+										val appendedLocations = appendAdventureLocations(adventure.id, newLocationDrafts)
+										newLocationItems.zip(appendedLocations).forEach { (newItem, appendedLocation) ->
+											appendedOrderIndexesByLocalId[newItem.localId] = appendedLocation.orderIndex
+										}
+									}
+
+									val finalOrderIndexes = orderedLocations.map { locationItem ->
+										when (locationItem) {
+											is EditLocationItem.Existing -> locationItem.location.orderIndex
+											is EditLocationItem.New -> appendedOrderIndexesByLocalId[locationItem.localId]
+												?: throw IllegalStateException("Missing order index for new location.")
+										}
+									}
+
+									if (finalOrderIndexes.isNotEmpty()) {
+										reorderAdventureLocations(adventure.id, finalOrderIndexes)
 									}
 								}.onSuccess {
 									onAdventureUpdated()
@@ -962,6 +1010,29 @@ private fun EditAdventureDialog(
 			}
 		},
 	)
+}
+
+private sealed interface EditLocationItem {
+	val key: String
+
+	data class Existing(val location: AdventureLocation) : EditLocationItem {
+		override val key: String = "existing-${location.orderIndex}"
+	}
+
+	data class New(val localId: Int, val draft: AdventureLocationDraft) : EditLocationItem {
+		override val key: String = "new-$localId"
+	}
+}
+
+private fun <T> List<T>.move(fromIndex: Int, toIndex: Int): List<T> {
+	if (fromIndex == toIndex || fromIndex !in indices || toIndex !in indices) {
+		return this
+	}
+
+	val mutable = toMutableList()
+	val movedItem = mutable.removeAt(fromIndex)
+	mutable.add(toIndex, movedItem)
+	return mutable
 }
 
 private fun isValidLatitude(value: Double): Boolean = value in -90.0..90.0

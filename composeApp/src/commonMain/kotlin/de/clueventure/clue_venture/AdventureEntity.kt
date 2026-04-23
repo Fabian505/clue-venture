@@ -52,6 +52,11 @@ data class AdventureLocationEntity(
     @SerialName("order_index") val orderIndex: Int,
 )
 
+@Serializable
+data class AdventureLocationOrderUpdateEntity(
+    @SerialName("order_index") val orderIndex: Int,
+)
+
 fun AdventureEntity.toAdventure(): Adventure = Adventure(
     id = id.toString(),
     title = title,

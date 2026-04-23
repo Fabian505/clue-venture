@@ -87,6 +87,47 @@ actual suspend fun deleteAdventureLocation(adventureId: String, orderIndex: Int)
     Unit
 }
 
+actual suspend fun reorderAdventureLocations(adventureId: String, orderedCurrentIndexes: List<Int>): Unit = withContext(Dispatchers.IO) {
+    val numericAdventureId = adventureId.toLongOrNull()
+        ?: throw IllegalArgumentException("Invalid adventure id: $adventureId")
+
+    if (orderedCurrentIndexes.isEmpty()) {
+        return@withContext
+    }
+
+    val currentLocations = getAdventureLocations(adventureId)
+    val currentOrderIndexes = currentLocations.map { it.orderIndex }
+
+    if (orderedCurrentIndexes.size != currentOrderIndexes.size || orderedCurrentIndexes.toSet() != currentOrderIndexes.toSet()) {
+        throw IllegalArgumentException("Reorder input does not match existing locations.")
+    }
+
+    val maxOrderIndex = currentOrderIndexes.maxOrNull() ?: -1
+    val temporaryBase = maxOrderIndex + currentOrderIndexes.size + 1000
+
+    orderedCurrentIndexes.forEachIndexed { position, currentOrderIndex ->
+        supabaseClient.from("adventure_locations")
+            .update(AdventureLocationOrderUpdateEntity(orderIndex = temporaryBase + position)) {
+                filter {
+                    eq("adventure_id", numericAdventureId)
+                    eq("order_index", currentOrderIndex)
+                }
+            }
+    }
+
+    orderedCurrentIndexes.indices.forEach { position ->
+        supabaseClient.from("adventure_locations")
+            .update(AdventureLocationOrderUpdateEntity(orderIndex = position)) {
+                filter {
+                    eq("adventure_id", numericAdventureId)
+                    eq("order_index", temporaryBase + position)
+                }
+            }
+    }
+
+    Unit
+}
+
 actual suspend fun updateAdventure(adventureId: String, draft: AdventureMetadataDraft): Adventure = withContext(Dispatchers.IO) {
     val numericAdventureId = adventureId.toLongOrNull()
         ?: throw IllegalArgumentException("Invalid adventure id: $adventureId")
