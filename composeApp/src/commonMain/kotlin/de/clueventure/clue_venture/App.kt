@@ -179,25 +179,39 @@ fun App() {
 		Scaffold(
 			contentWindowInsets = WindowInsets(0, 0, 0, 0),
 			bottomBar = {
-				NavigationBar(
-					modifier = Modifier.height(64.dp),
-				) {
-					BottomTab.entries.forEach { tab ->
-						NavigationBarItem(
-							selected = selectedTab == tab,
-							onClick = { selectedTab = tab },
-							icon = {
-								Icon(
-									imageVector = tab.icon,
-									contentDescription = tab.contentDescription,
-								)
-							},
-						)
+				if (editingAdventure == null) {
+					NavigationBar(
+						modifier = Modifier.height(64.dp),
+					) {
+						BottomTab.entries.forEach { tab ->
+							NavigationBarItem(
+								selected = selectedTab == tab,
+								onClick = { selectedTab = tab },
+								icon = {
+									Icon(
+										imageVector = tab.icon,
+										contentDescription = tab.contentDescription,
+									)
+								},
+							)
+						}
 					}
 				}
 			},
 		) { innerPadding ->
-			when (selectedTab) {
+			editingAdventure?.let { adventure ->
+				EditAdventureScreen(
+					modifier = Modifier
+						.fillMaxSize()
+						.padding(innerPadding),
+					adventure = adventure,
+					currentLocation = currentLocation,
+					onDismiss = { editingAdventure = null },
+					onAdventureUpdated = {
+						adventureRefreshKey += 1
+					},
+				)
+			} ?: when (selectedTab) {
 				BottomTab.Left -> AdventureListScreenWrapper(
 					modifier = Modifier
 						.fillMaxSize()
@@ -242,17 +256,6 @@ fun App() {
 				currentLocation = currentLocation,
 				onDismiss = { showCreateAdventureDialog = false },
 				onAdventureCreated = {
-					adventureRefreshKey += 1
-				},
-			)
-		}
-
-		editingAdventure?.let { adventure ->
-			EditAdventureDialog(
-				adventure = adventure,
-				currentLocation = currentLocation,
-				onDismiss = { editingAdventure = null },
-				onAdventureUpdated = {
 					adventureRefreshKey += 1
 				},
 			)
@@ -668,7 +671,8 @@ private fun CreateAdventureDialog(
 }
 
 @Composable
-private fun EditAdventureDialog(
+private fun EditAdventureScreen(
+	modifier: Modifier = Modifier,
 	adventure: Adventure,
 	currentLocation: GeoPoint?,
 	onDismiss: () -> Unit,
@@ -740,17 +744,122 @@ private fun EditAdventureDialog(
 		}
 	}
 
-	AlertDialog(
-		onDismissRequest = {
-			if (!isSubmitting) {
-				onDismiss()
+	fun submitAdventureUpdate() {
+		val parsedStartLatitude = startLatitude.toDoubleOrNull()
+		val parsedStartLongitude = startLongitude.toDoubleOrNull()
+		val parsedDuration = durationMinutes.toIntOrNull()
+
+		when {
+			title.isBlank() -> errorMessage = "Bitte gib einen Titel ein."
+			summary.isBlank() -> errorMessage = "Bitte gib eine Kurzbeschreibung ein."
+			parsedStartLatitude == null || parsedStartLongitude == null -> {
+				errorMessage = "Bitte gib gueltige Startkoordinaten ein."
 			}
-		},
-		title = { Text("Abenteuer bearbeiten") },
-		text = {
-			LazyColumn(
-				verticalArrangement = Arrangement.spacedBy(8.dp),
+			!isValidLatitude(parsedStartLatitude) || !isValidLongitude(parsedStartLongitude) -> {
+				errorMessage = "Startkoordinaten muessen in gueltigen Bereichen liegen."
+			}
+			parsedDuration != null && parsedDuration <= 0 -> {
+				errorMessage = "Die Dauer muss groesser als 0 sein."
+			}
+			else -> {
+				errorMessage = null
+				isSubmitting = true
+				scope.launch {
+					runCatching {
+						val removedOrderIndexes = removedExistingLocations.map { it.orderIndex }
+						val newLocationItems = orderedLocations.mapNotNull { locationItem ->
+							locationItem as? EditLocationItem.New
+						}
+						val newLocationDrafts = newLocationItems.map { it.draft }
+						val appendedOrderIndexesByLocalId = mutableMapOf<Int, Int>()
+
+						updateAdventure(
+							adventureId = adventure.id,
+							draft = AdventureMetadataDraft(
+								title = title.trim(),
+								summary = summary.trim(),
+								startPoint = GeoPoint(
+									latitude = parsedStartLatitude,
+									longitude = parsedStartLongitude,
+								),
+								difficulty = difficulty.takeIf { it.isNotBlank() }?.trim(),
+								estimatedDurationMinutes = parsedDuration,
+							),
+						)
+
+						if (removedOrderIndexes.isNotEmpty()) {
+							removedOrderIndexes.sorted().forEach { orderIndex ->
+								deleteAdventureLocation(adventure.id, orderIndex)
+							}
+						}
+
+						if (newLocationDrafts.isNotEmpty()) {
+							val appendedLocations = appendAdventureLocations(adventure.id, newLocationDrafts)
+							newLocationItems.zip(appendedLocations).forEach { (newItem, appendedLocation) ->
+								appendedOrderIndexesByLocalId[newItem.localId] = appendedLocation.orderIndex
+							}
+						}
+
+						val finalOrderIndexes = orderedLocations.map { locationItem ->
+							when (locationItem) {
+								is EditLocationItem.Existing -> locationItem.location.orderIndex
+								is EditLocationItem.New -> appendedOrderIndexesByLocalId[locationItem.localId]
+									?: throw IllegalStateException("Missing order index for new location.")
+							}
+						}
+
+						if (finalOrderIndexes.isNotEmpty()) {
+							reorderAdventureLocations(adventure.id, finalOrderIndexes)
+						}
+					}.onSuccess {
+						onAdventureUpdated()
+						onDismiss()
+					}.onFailure { throwable ->
+						errorMessage = throwable.message ?: "Abenteuer konnte nicht aktualisiert werden."
+					}
+					isSubmitting = false
+				}
+			}
+		}
+	}
+
+	Column(
+		modifier = modifier
+			.fillMaxSize()
+			.padding(16.dp),
+		verticalArrangement = Arrangement.spacedBy(12.dp),
+	) {
+		Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+			Text(
+				text = "Abenteuer bearbeiten",
+				style = MaterialTheme.typography.headlineSmall,
+			)
+			Row(
+				modifier = Modifier.fillMaxWidth(),
+				horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+				verticalAlignment = Alignment.CenterVertically,
 			) {
+				TextButton(onClick = onDismiss, enabled = !isSubmitting) {
+					Text("Abbrechen")
+				}
+				Button(onClick = { submitAdventureUpdate() }, enabled = !isSubmitting) {
+					if (isSubmitting) {
+						CircularProgressIndicator(
+							modifier = Modifier.size(18.dp),
+							strokeWidth = 2.dp,
+						)
+					} else {
+						Text("Speichern")
+					}
+				}
+			}
+		}
+
+		LazyColumn(
+			modifier = Modifier.fillMaxSize(),
+			verticalArrangement = Arrangement.spacedBy(8.dp),
+			contentPadding = PaddingValues(bottom = 24.dp),
+		) {
 				item {
 					OutlinedTextField(
 						value = title,
@@ -994,106 +1103,8 @@ private fun EditAdventureDialog(
 					}
 				}
 			}
-		},
-		confirmButton = {
-			Button(
-				onClick = {
-					val parsedStartLatitude = startLatitude.toDoubleOrNull()
-					val parsedStartLongitude = startLongitude.toDoubleOrNull()
-					val parsedDuration = durationMinutes.toIntOrNull()
-
-					when {
-						title.isBlank() -> errorMessage = "Bitte gib einen Titel ein."
-						summary.isBlank() -> errorMessage = "Bitte gib eine Kurzbeschreibung ein."
-						parsedStartLatitude == null || parsedStartLongitude == null -> {
-							errorMessage = "Bitte gib gueltige Startkoordinaten ein."
-						}
-						!isValidLatitude(parsedStartLatitude) || !isValidLongitude(parsedStartLongitude) -> {
-							errorMessage = "Startkoordinaten muessen in gueltigen Bereichen liegen."
-						}
-						parsedDuration != null && parsedDuration <= 0 -> {
-							errorMessage = "Die Dauer muss groesser als 0 sein."
-						}
-						else -> {
-							errorMessage = null
-							isSubmitting = true
-							scope.launch {
-								runCatching {
-									val removedOrderIndexes = removedExistingLocations.map { it.orderIndex }
-									val newLocationItems = orderedLocations.mapNotNull { locationItem ->
-										locationItem as? EditLocationItem.New
-									}
-									val newLocationDrafts = newLocationItems.map { it.draft }
-									val appendedOrderIndexesByLocalId = mutableMapOf<Int, Int>()
-
-									updateAdventure(
-										adventureId = adventure.id,
-										draft = AdventureMetadataDraft(
-											title = title.trim(),
-											summary = summary.trim(),
-											startPoint = GeoPoint(
-												latitude = parsedStartLatitude,
-												longitude = parsedStartLongitude,
-											),
-											difficulty = difficulty.takeIf { it.isNotBlank() }?.trim(),
-											estimatedDurationMinutes = parsedDuration,
-										),
-									)
-
-									if (removedOrderIndexes.isNotEmpty()) {
-										removedOrderIndexes.sorted().forEach { orderIndex ->
-											deleteAdventureLocation(adventure.id, orderIndex)
-										}
-									}
-
-									if (newLocationDrafts.isNotEmpty()) {
-										val appendedLocations = appendAdventureLocations(adventure.id, newLocationDrafts)
-										newLocationItems.zip(appendedLocations).forEach { (newItem, appendedLocation) ->
-											appendedOrderIndexesByLocalId[newItem.localId] = appendedLocation.orderIndex
-										}
-									}
-
-									val finalOrderIndexes = orderedLocations.map { locationItem ->
-										when (locationItem) {
-											is EditLocationItem.Existing -> locationItem.location.orderIndex
-											is EditLocationItem.New -> appendedOrderIndexesByLocalId[locationItem.localId]
-												?: throw IllegalStateException("Missing order index for new location.")
-										}
-									}
-
-									if (finalOrderIndexes.isNotEmpty()) {
-										reorderAdventureLocations(adventure.id, finalOrderIndexes)
-									}
-								}.onSuccess {
-									onAdventureUpdated()
-									onDismiss()
-								}.onFailure { throwable ->
-									errorMessage = throwable.message ?: "Abenteuer konnte nicht aktualisiert werden."
-								}
-								isSubmitting = false
-							}
-						}
-					}
-				},
-				enabled = !isSubmitting,
-			) {
-				if (isSubmitting) {
-					CircularProgressIndicator(
-						modifier = Modifier.size(18.dp),
-						strokeWidth = 2.dp,
-					)
-				} else {
-					Text("Speichern")
-				}
-			}
-		},
-		dismissButton = {
-			TextButton(onClick = onDismiss, enabled = !isSubmitting) {
-				Text("Abbrechen")
-			}
-		},
-	)
-}
+		}
+	}
 
 private sealed interface EditLocationItem {
 	val key: String
