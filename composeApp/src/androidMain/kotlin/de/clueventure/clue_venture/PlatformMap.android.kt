@@ -80,7 +80,7 @@ private const val ROUTE_TARGET_LAYER_ID = "adventure-route-target-layer"
 @Suppress("CognitiveComplexity")
 actual fun PlatformMap(
     modifier: Modifier,
-    routeTarget: GeoPoint?,
+    routeTargets: List<GeoPoint>,
     onCurrentLocationChanged: (GeoPoint?) -> Unit,
 ) {
     val context = LocalContext.current
@@ -114,30 +114,29 @@ actual fun PlatformMap(
                 map.setStyle("asset://style.json") { style ->
                     ensureLocationLayer(style)
                     ensureRouteLayers(style)
-                    applyRouteOverlay(style, routePoints, routeTarget)
+                    applyRouteOverlay(style, routePoints, routeTargets)
                 }
             }
         }
     }
 
-    LaunchedEffect(mapLibreMap, routeTarget, latestLocation, routePoints) {
+    LaunchedEffect(mapLibreMap, routeTargets, latestLocation, routePoints) {
         val map = mapLibreMap ?: return@LaunchedEffect
         map.getStyle { style ->
             ensureRouteLayers(style)
-            applyRouteOverlay(style, routePoints, routeTarget)
+            applyRouteOverlay(style, routePoints, routeTargets)
         }
     }
 
-    LaunchedEffect(latestLocation?.toGeoPoint(), routeTarget) {
+    LaunchedEffect(latestLocation?.toGeoPoint(), routeTargets) {
         val currentLocation = latestLocation?.toGeoPoint()
-        val target = routeTarget
 
-        if (currentLocation == null || target == null) {
+        if (currentLocation == null || routeTargets.isEmpty()) {
             routePoints = emptyList()
             return@LaunchedEffect
         }
 
-        routePoints = fetchRoutePoints(currentLocation, target)
+        routePoints = fetchRoutePoints(listOf(currentLocation) + routeTargets)
     }
 
     DisposableEffect(hasLocationPermission, mapLibreMap) {
@@ -422,19 +421,21 @@ private fun ensureRouteLayers(style: Style) {
     }
 }
 
-private fun applyRouteOverlay(style: Style, routePoints: List<GeoPoint>, routeTarget: GeoPoint?) {
+private fun applyRouteOverlay(style: Style, routePoints: List<GeoPoint>, routeTargets: List<GeoPoint>) {
     val routeSource = style.getSourceAs<GeoJsonSource>(ROUTE_SOURCE_ID) ?: return
     val routeTargetSource = style.getSourceAs<GeoJsonSource>(ROUTE_TARGET_SOURCE_ID) ?: return
 
-    if (routeTarget == null) {
+    if (routeTargets.isEmpty()) {
         routeSource.setGeoJson(FeatureCollection.fromFeatures(arrayOf()))
         routeTargetSource.setGeoJson(FeatureCollection.fromFeatures(arrayOf()))
         return
     }
 
     routeTargetSource.setGeoJson(
-        Feature.fromGeometry(
-            Point.fromLngLat(routeTarget.longitude, routeTarget.latitude),
+        FeatureCollection.fromFeatures(
+            routeTargets.map { target ->
+                Feature.fromGeometry(Point.fromLngLat(target.longitude, target.latitude))
+            }.toTypedArray(),
         ),
     )
 
@@ -452,10 +453,12 @@ private fun applyRouteOverlay(style: Style, routePoints: List<GeoPoint>, routeTa
     )
 }
 
-private suspend fun fetchRoutePoints(currentLocation: GeoPoint, target: GeoPoint): List<GeoPoint> {
+private suspend fun fetchRoutePoints(waypoints: List<GeoPoint>): List<GeoPoint> {
+    if (waypoints.size < 2) return emptyList()
+
     return withContext(Dispatchers.IO) {
         runCatching {
-            val connection = URL(buildRouteUrl(currentLocation, target)).openConnection() as HttpURLConnection
+            val connection = URL(buildRouteUrl(waypoints)).openConnection() as HttpURLConnection
             try {
                 connection.connectTimeout = 10_000
                 connection.readTimeout = 10_000
@@ -476,8 +479,11 @@ private suspend fun fetchRoutePoints(currentLocation: GeoPoint, target: GeoPoint
     }
 }
 
-private fun buildRouteUrl(currentLocation: GeoPoint, target: GeoPoint): String {
-    return "https://router.project-osrm.org/route/v1/foot/${currentLocation.longitude},${currentLocation.latitude};${target.longitude},${target.latitude}?overview=full&geometries=geojson&steps=false"
+private fun buildRouteUrl(waypoints: List<GeoPoint>): String {
+    val coordinates = waypoints.joinToString(";") { waypoint ->
+        "${waypoint.longitude},${waypoint.latitude}"
+    }
+    return "https://router.project-osrm.org/route/v1/foot/$coordinates?overview=full&geometries=geojson&steps=false"
 }
 
 private fun parseRoutePoints(responseText: String): List<GeoPoint> {
@@ -503,4 +509,3 @@ private fun JSONArray.toGeoPoints(): List<GeoPoint> {
         )
     }
 }
-

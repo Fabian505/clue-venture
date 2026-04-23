@@ -158,10 +158,11 @@ private enum class BottomTab(
 @Composable
 @Preview
 fun App() {
+	val appScope = rememberCoroutineScope()
 	var selectedTab by remember { mutableStateOf(BottomTab.Map) }
 	var searchQuery by remember { mutableStateOf("") }
 	var currentLocation by remember { mutableStateOf<GeoPoint?>(null) }
-	var routeTarget by remember { mutableStateOf<GeoPoint?>(null) }
+	var routeTargets by remember { mutableStateOf<List<GeoPoint>>(emptyList()) }
 	var showCreateAdventureDialog by remember { mutableStateOf(false) }
 	var adventureRefreshKey by remember { mutableStateOf(0) }
 
@@ -197,8 +198,12 @@ fun App() {
 					currentLocation = currentLocation,
 					refreshKey = adventureRefreshKey,
 					onNavigateToStart = { adventure ->
-						routeTarget = adventure.startPoint
+						routeTargets = listOf(adventure.startPoint)
 						selectedTab = BottomTab.Map
+						appScope.launch {
+							val locations = getAdventureLocations(adventure.id)
+							routeTargets = listOf(adventure.startPoint) + locations.map { it.point }
+						}
 					},
 					onCreateAdventure = { showCreateAdventureDialog = true },
 				)
@@ -207,7 +212,7 @@ fun App() {
 					modifier = Modifier
 						.fillMaxSize()
 						.padding(innerPadding),
-					routeTarget = routeTarget,
+					routeTargets = routeTargets,
 					onCurrentLocationChanged = { currentLocation = it },
 				)
 

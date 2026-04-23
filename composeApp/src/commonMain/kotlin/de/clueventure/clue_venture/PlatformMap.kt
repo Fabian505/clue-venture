@@ -6,6 +6,6 @@ import androidx.compose.ui.Modifier
 @Composable
 expect fun PlatformMap(
 	modifier: Modifier = Modifier,
-	routeTarget: GeoPoint? = null,
+	routeTargets: List<GeoPoint> = emptyList(),
 	onCurrentLocationChanged: (GeoPoint?) -> Unit = {},
 )

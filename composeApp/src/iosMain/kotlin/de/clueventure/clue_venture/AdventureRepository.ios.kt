@@ -56,3 +56,18 @@ actual suspend fun createAdventure(draft: AdventureDraft): Adventure = withConte
         },
     )
 }
+
+actual suspend fun getAdventureLocations(adventureId: String): List<AdventureLocation> = withContext(Dispatchers.IO) {
+    val numericAdventureId = adventureId.toLongOrNull() ?: return@withContext emptyList()
+
+    runCatching {
+        supabaseClient.from("adventure_locations")
+            .select()
+            .decodeList<AdventureLocationEntity>()
+            .asSequence()
+            .filter { it.adventureId == numericAdventureId }
+            .sortedBy { it.orderIndex }
+            .map { it.toAdventureLocation() }
+            .toList()
+    }.getOrDefault(emptyList())
+}

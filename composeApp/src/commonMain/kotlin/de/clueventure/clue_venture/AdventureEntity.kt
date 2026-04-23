@@ -33,6 +33,15 @@ data class AdventureLocationInsertEntity(
     @SerialName("order_index") val orderIndex: Int,
 )
 
+@Serializable
+data class AdventureLocationEntity(
+    @SerialName("adventure_id") val adventureId: Long,
+    val name: String,
+    val latitude: Double,
+    val longitude: Double,
+    @SerialName("order_index") val orderIndex: Int,
+)
+
 fun AdventureEntity.toAdventure(): Adventure = Adventure(
     id = id.toString(),
     title = title,
@@ -40,4 +49,10 @@ fun AdventureEntity.toAdventure(): Adventure = Adventure(
     startPoint = GeoPoint(latitude = startLatitude, longitude = startLongitude),
     difficulty = difficulty,
     estimatedDurationMinutes = estimatedDurationMinutes,
+)
+
+fun AdventureLocationEntity.toAdventureLocation(): AdventureLocation = AdventureLocation(
+    name = name,
+    point = GeoPoint(latitude = latitude, longitude = longitude),
+    orderIndex = orderIndex,
 )

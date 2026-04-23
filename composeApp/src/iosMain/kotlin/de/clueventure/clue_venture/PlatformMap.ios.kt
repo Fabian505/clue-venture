@@ -11,7 +11,7 @@ import androidx.compose.ui.Modifier
 @Composable
 actual fun PlatformMap(
     modifier: Modifier,
-    routeTarget: GeoPoint?,
+    routeTargets: List<GeoPoint>,
     onCurrentLocationChanged: (GeoPoint?) -> Unit,
 ) {
     Box(
@@ -19,6 +19,6 @@ actual fun PlatformMap(
             .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
-        Text("Map is available on Android")
+        Text("Map is available on Android (${routeTargets.size} Ziele geladen)")
     }
 }
