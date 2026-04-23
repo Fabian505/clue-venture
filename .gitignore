@@ -43,3 +43,9 @@ captures
 !*.xcworkspace/contents.xcworkspacedata
 **/xcshareddata/WorkspaceSettings.xcsettings
 node_modules/
+composeApp/src/graphify-out/cache/
+composeApp/src/graphify-out/*
+
+/graphify-out/cache/*
+/graphify-out/*
+/.opencode/*
