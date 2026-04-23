@@ -581,6 +581,7 @@ private fun EditAdventureDialog(
 	var locationLatitude by remember(adventure.id) { mutableStateOf("") }
 	var locationLongitude by remember(adventure.id) { mutableStateOf("") }
 	var existingLocations by remember(adventure.id) { mutableStateOf<List<AdventureLocation>>(emptyList()) }
+	var removedExistingLocationOrderIndexes by remember(adventure.id) { mutableStateOf<Set<Int>>(emptySet()) }
 	var newLocations by remember(adventure.id) { mutableStateOf<List<AdventureLocationDraft>>(emptyList()) }
 
 	var isLoadingLocations by remember(adventure.id) { mutableStateOf(true) }
@@ -590,6 +591,7 @@ private fun EditAdventureDialog(
 	LaunchedEffect(adventure.id) {
 		isLoadingLocations = true
 		errorMessage = null
+		removedExistingLocationOrderIndexes = emptySet()
 		runCatching {
 			getAdventureLocations(adventure.id)
 		}.onSuccess { locations ->
@@ -598,6 +600,13 @@ private fun EditAdventureDialog(
 			errorMessage = "Orte konnten nicht geladen werden."
 		}
 		isLoadingLocations = false
+	}
+
+	val visibleExistingLocations = existingLocations.filterNot { location ->
+		removedExistingLocationOrderIndexes.contains(location.orderIndex)
+	}
+	val removedExistingLocations = existingLocations.filter { location ->
+		removedExistingLocationOrderIndexes.contains(location.orderIndex)
 	}
 
 	fun addNewLocation() {
@@ -725,16 +734,58 @@ private fun EditAdventureDialog(
 					item {
 						Text("Orte werden geladen...", style = MaterialTheme.typography.bodySmall)
 					}
-				} else if (existingLocations.isEmpty()) {
+				} else if (visibleExistingLocations.isEmpty()) {
 					item {
 						Text("Noch keine Orte gespeichert.", style = MaterialTheme.typography.bodySmall)
 					}
 				} else {
-					items(existingLocations, key = { it.orderIndex }) { location ->
+					items(visibleExistingLocations, key = { it.orderIndex }) { location ->
+						Row(
+							modifier = Modifier.fillMaxWidth(),
+							horizontalArrangement = Arrangement.SpaceBetween,
+							verticalAlignment = Alignment.CenterVertically,
+						) {
+							Text(
+								text = "${location.orderIndex + 1}. ${location.name}",
+								style = MaterialTheme.typography.bodyMedium,
+							)
+							TextButton(
+								onClick = {
+									removedExistingLocationOrderIndexes = removedExistingLocationOrderIndexes + location.orderIndex
+								},
+								enabled = !isSubmitting,
+							) {
+								Text("Entfernen")
+							}
+						}
+					}
+				}
+				if (removedExistingLocations.isNotEmpty()) {
+					item {
 						Text(
-							text = "${location.orderIndex + 1}. ${location.name}",
-							style = MaterialTheme.typography.bodyMedium,
+							text = "Zur Entfernung markierte Orte",
+							style = MaterialTheme.typography.titleSmall,
 						)
+					}
+					items(removedExistingLocations, key = { it.orderIndex }) { location ->
+						Row(
+							modifier = Modifier.fillMaxWidth(),
+							horizontalArrangement = Arrangement.SpaceBetween,
+							verticalAlignment = Alignment.CenterVertically,
+						) {
+							Text(
+								text = "${location.orderIndex + 1}. ${location.name}",
+								style = MaterialTheme.typography.bodyMedium,
+							)
+							TextButton(
+								onClick = {
+									removedExistingLocationOrderIndexes = removedExistingLocationOrderIndexes - location.orderIndex
+								},
+								enabled = !isSubmitting,
+							) {
+								Text("Wiederherstellen")
+							}
+						}
 					}
 				}
 				item {
@@ -748,7 +799,7 @@ private fun EditAdventureDialog(
 						onClick = {
 							val location = currentLocation ?: return@Button
 							if (locationName.isBlank()) {
-								locationName = "Ort ${existingLocations.size + newLocations.size + 1}"
+								locationName = "Ort ${visibleExistingLocations.size + newLocations.size + 1}"
 							}
 							locationLatitude = location.latitude.toString()
 							locationLongitude = location.longitude.toString()
@@ -870,6 +921,14 @@ private fun EditAdventureDialog(
 											estimatedDurationMinutes = parsedDuration,
 										),
 									)
+
+									if (removedExistingLocationOrderIndexes.isNotEmpty()) {
+										removedExistingLocationOrderIndexes
+											.sorted()
+											.forEach { orderIndex ->
+												deleteAdventureLocation(adventure.id, orderIndex)
+											}
+									}
 
 									if (newLocations.isNotEmpty()) {
 										appendAdventureLocations(adventure.id, newLocations)

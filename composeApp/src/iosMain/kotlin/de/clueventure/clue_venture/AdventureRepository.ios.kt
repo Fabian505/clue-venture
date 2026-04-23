@@ -72,6 +72,21 @@ actual suspend fun getAdventureLocations(adventureId: String): List<AdventureLoc
     }.getOrDefault(emptyList())
 }
 
+actual suspend fun deleteAdventureLocation(adventureId: String, orderIndex: Int): Unit = withContext(Dispatchers.IO) {
+    val numericAdventureId = adventureId.toLongOrNull()
+        ?: throw IllegalArgumentException("Invalid adventure id: $adventureId")
+
+    supabaseClient.from("adventure_locations")
+        .delete {
+            filter {
+                eq("adventure_id", numericAdventureId)
+                eq("order_index", orderIndex)
+            }
+        }
+
+    Unit
+}
+
 actual suspend fun updateAdventure(adventureId: String, draft: AdventureMetadataDraft): Adventure = withContext(Dispatchers.IO) {
     val numericAdventureId = adventureId.toLongOrNull()
         ?: throw IllegalArgumentException("Invalid adventure id: $adventureId")
