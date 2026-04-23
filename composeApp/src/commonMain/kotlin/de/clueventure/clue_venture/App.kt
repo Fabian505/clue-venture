@@ -168,6 +168,8 @@ private enum class MapPickerTarget {
 	AdventureLocation,
 }
 
+private const val START_ADVENTURE_MAX_DISTANCE_METERS = 10.0
+
 @Composable
 @Preview
 fun App() {
@@ -182,6 +184,9 @@ fun App() {
 	var adventurePendingDeletion by remember { mutableStateOf<Adventure?>(null) }
 	var isDeletingAdventure by remember { mutableStateOf(false) }
 	var deleteErrorMessage by remember { mutableStateOf<String?>(null) }
+	var adventurePendingStart by remember { mutableStateOf<Adventure?>(null) }
+	var isStartingAdventure by remember { mutableStateOf(false) }
+	var startErrorMessage by remember { mutableStateOf<String?>(null) }
 	var adventureRefreshKey by remember { mutableStateOf(0) }
 
 	MaterialTheme {
@@ -248,6 +253,12 @@ fun App() {
 						appScope.launch {
 							val locations = getAdventureLocations(adventure.id)
 							routeTargets = listOf(adventure.startPoint) + locations.map { it.point }
+						}
+					},
+					onStartAdventure = { adventure ->
+						if (canStartAdventure(adventure.startPoint, currentLocation)) {
+							adventurePendingStart = adventure
+							startErrorMessage = null
 						}
 					},
 					onCreateAdventure = { showCreateAdventureDialog = true },
@@ -337,6 +348,90 @@ fun App() {
 					TextButton(
 						onClick = { adventurePendingDeletion = null },
 						enabled = !isDeletingAdventure,
+					) {
+						Text("Abbrechen")
+					}
+				},
+			)
+		}
+
+		adventurePendingStart?.let { adventure ->
+			AlertDialog(
+				onDismissRequest = {
+					if (!isStartingAdventure) {
+						adventurePendingStart = null
+					}
+				},
+				title = { Text("Abenteuer starten") },
+				text = {
+					Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+						Text("Willst du '${adventure.title}' jetzt starten?")
+						Text(
+							text = "Schwierigkeit: ${adventure.difficulty ?: "Unbekannt"}",
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+						Text(
+							text = "Dauer: ${adventure.estimatedDurationMinutes?.let { "$it min" } ?: "Unbekannt"}",
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+						Text(
+							text = startDialogDistanceLabel(adventure.startPoint, currentLocation),
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+						if (startErrorMessage != null) {
+							Text(
+								text = startErrorMessage.orEmpty(),
+								color = MaterialTheme.colorScheme.error,
+								style = MaterialTheme.typography.bodySmall,
+							)
+						}
+					}
+				},
+				confirmButton = {
+					Button(
+						onClick = {
+							isStartingAdventure = true
+							startErrorMessage = null
+							appScope.launch {
+								if (!canStartAdventure(adventure.startPoint, currentLocation)) {
+									startErrorMessage = "Du musst innerhalb von 10 m am Startpunkt sein."
+									isStartingAdventure = false
+									return@launch
+								}
+
+								runCatching {
+									val locations = getAdventureLocations(adventure.id)
+									routedAdventureId = adventure.id
+									routeTargets = listOf(adventure.startPoint) + locations.map { it.point }
+									selectedTab = BottomTab.Map
+								}.onSuccess {
+									adventurePendingStart = null
+								}.onFailure { throwable ->
+									startErrorMessage = throwable.message ?: "Abenteuer konnte nicht gestartet werden."
+								}
+
+								isStartingAdventure = false
+							}
+						},
+						enabled = !isStartingAdventure,
+					) {
+						if (isStartingAdventure) {
+							CircularProgressIndicator(
+								modifier = Modifier.size(18.dp),
+								strokeWidth = 2.dp,
+							)
+						} else {
+							Text("Starten")
+						}
+					}
+				},
+				dismissButton = {
+					TextButton(
+						onClick = { adventurePendingStart = null },
+						enabled = !isStartingAdventure,
 					) {
 						Text("Abbrechen")
 					}
@@ -1359,6 +1454,7 @@ fun AdventureListScreen(
 	onSearchQueryChange: (String) -> Unit,
 	currentLocation: GeoPoint?,
 	onNavigateToStart: (Adventure) -> Unit,
+	onStartAdventure: (Adventure) -> Unit,
 	onCreateAdventure: () -> Unit,
 	onEditAdventure: (Adventure) -> Unit,
 	onDeleteAdventure: (Adventure) -> Unit,
@@ -1414,6 +1510,7 @@ fun AdventureListScreen(
 						adventure = adventure,
 						currentLocation = currentLocation,
 						onNavigateToStart = { onNavigateToStart(adventure) },
+						onStartAdventure = { onStartAdventure(adventure) },
 						onEditAdventure = { onEditAdventure(adventure) },
 						onDeleteAdventure = { onDeleteAdventure(adventure) },
 					)
@@ -1438,10 +1535,13 @@ private fun AdventureCard(
 	adventure: Adventure,
 	currentLocation: GeoPoint?,
 	onNavigateToStart: () -> Unit,
+	onStartAdventure: () -> Unit,
 	onEditAdventure: () -> Unit,
 	onDeleteAdventure: () -> Unit,
 ) {
 	var showActionsMenu by remember(adventure.id) { mutableStateOf(false) }
+	val startDistanceMeters = currentLocation?.let { adventure.startPoint.distanceTo(it) }
+	val canStart = startDistanceMeters != null && startDistanceMeters <= START_ADVENTURE_MAX_DISTANCE_METERS
 
 	Card(
 		modifier = Modifier.fillMaxWidth(),
@@ -1477,9 +1577,23 @@ private fun AdventureCard(
 				)
 			}
 
-			Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-				Button(onClick = onNavigateToStart) {
+			Row(
+				modifier = Modifier.fillMaxWidth(),
+				horizontalArrangement = Arrangement.spacedBy(8.dp),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				Button(
+					onClick = onNavigateToStart,
+					modifier = Modifier.weight(1f),
+				) {
 					Text("Zum Startpunkt")
+				}
+				Button(
+					onClick = onStartAdventure,
+					enabled = canStart,
+					modifier = Modifier.weight(1f),
+				) {
+					Text("Abenteuer starten")
 				}
 				Box {
 					IconButton(onClick = { showActionsMenu = true }) {
@@ -1506,6 +1620,14 @@ private fun AdventureCard(
 					}
 				}
 			}
+
+			if (!canStart) {
+				Text(
+					text = startButtonHint(startDistanceMeters),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
 		}
 	}
 }
@@ -1522,6 +1644,35 @@ private fun distanceLabel(startPoint: GeoPoint, currentLocation: GeoPoint?): Str
 	} else {
 		"${distanceMeters.roundToInt()} m entfernt"
 	}
+}
+
+private fun canStartAdventure(startPoint: GeoPoint, currentLocation: GeoPoint?): Boolean {
+	if (currentLocation == null) {
+		return false
+	}
+
+	return startPoint.distanceTo(currentLocation) <= START_ADVENTURE_MAX_DISTANCE_METERS
+}
+
+private fun startButtonHint(distanceMeters: Double?): String {
+	if (distanceMeters == null) {
+		return "Abenteuerstart ist nur mit aktivem Standort moeglich."
+	}
+
+	if (distanceMeters <= START_ADVENTURE_MAX_DISTANCE_METERS) {
+		return "Du bist nah genug am Startpunkt."
+	}
+
+	return "Starte innerhalb von 10 m (aktuell: ${distanceMeters.roundToInt()} m)."
+}
+
+private fun startDialogDistanceLabel(startPoint: GeoPoint, currentLocation: GeoPoint?): String {
+	if (currentLocation == null) {
+		return "Standort nicht verfuegbar. Bitte aktiviere GPS."
+	}
+
+	val distanceMeters = startPoint.distanceTo(currentLocation).roundToInt()
+	return "Du bist $distanceMeters m vom Startpunkt entfernt."
 }
 
 private fun buildMetadataLabel(adventure: Adventure): String {
