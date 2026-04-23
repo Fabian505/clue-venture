@@ -17,6 +17,29 @@ data class Adventure(
     val title: String,
     val summary: String,
     val startPoint: GeoPoint,
+    val difficulty: String? = null,
+    val estimatedDurationMinutes: Int? = null,
+    val locations: List<AdventureLocation> = emptyList(),
+)
+
+data class AdventureLocation(
+    val name: String,
+    val point: GeoPoint,
+    val orderIndex: Int,
+)
+
+data class AdventureDraft(
+    val title: String,
+    val summary: String,
+    val startPoint: GeoPoint,
+    val difficulty: String?,
+    val estimatedDurationMinutes: Int?,
+    val locations: List<AdventureLocationDraft>,
+)
+
+data class AdventureLocationDraft(
+    val name: String,
+    val point: GeoPoint,
 )
 
 fun GeoPoint.distanceTo(other: GeoPoint): Double {

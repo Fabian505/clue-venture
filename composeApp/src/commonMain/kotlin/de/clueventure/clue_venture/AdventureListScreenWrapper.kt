@@ -14,13 +14,15 @@ fun AdventureListScreenWrapper(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     currentLocation: GeoPoint?,
+    refreshKey: Int,
     onNavigateToStart: (Adventure) -> Unit,
     onCreateAdventure: () -> Unit,
 ) {
     var adventures by remember { mutableStateOf<List<Adventure>>(listOf()) }
     var isLoading by remember { mutableStateOf(true) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(refreshKey) {
+        isLoading = true
         adventures = getAdventures()
         isLoading = false
     }

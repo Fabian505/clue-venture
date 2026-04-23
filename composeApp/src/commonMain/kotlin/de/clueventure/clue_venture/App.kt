@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -17,6 +18,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +43,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 private object BottomBarIcons {
@@ -159,6 +163,7 @@ fun App() {
 	var currentLocation by remember { mutableStateOf<GeoPoint?>(null) }
 	var routeTarget by remember { mutableStateOf<GeoPoint?>(null) }
 	var showCreateAdventureDialog by remember { mutableStateOf(false) }
+	var adventureRefreshKey by remember { mutableStateOf(0) }
 
 	MaterialTheme {
 		Scaffold(
@@ -190,6 +195,7 @@ fun App() {
 					searchQuery = searchQuery,
 					onSearchQueryChange = { searchQuery = it },
 					currentLocation = currentLocation,
+					refreshKey = adventureRefreshKey,
 					onNavigateToStart = { adventure ->
 						routeTarget = adventure.startPoint
 						selectedTab = BottomTab.Map
@@ -210,21 +216,291 @@ fun App() {
 		}
 
 		if (showCreateAdventureDialog) {
-			AlertDialog(
-				onDismissRequest = { showCreateAdventureDialog = false },
-				title = { Text("Neues Abenteuer") },
-				text = {
-					Text("Die Erstellung neuer Abenteuer wird später verfeinert. Aktuell ist das ein Platzhalter.")
-				},
-				confirmButton = {
-					TextButton(onClick = { showCreateAdventureDialog = false }) {
-						Text("Verstanden")
-					}
+			CreateAdventureDialog(
+				onDismiss = { showCreateAdventureDialog = false },
+				onAdventureCreated = {
+					adventureRefreshKey += 1
 				},
 			)
 		}
 	}
 }
+
+@Composable
+private fun CreateAdventureDialog(
+	onDismiss: () -> Unit,
+	onAdventureCreated: (Adventure) -> Unit,
+) {
+	val scope = rememberCoroutineScope()
+
+	var title by remember { mutableStateOf("") }
+	var summary by remember { mutableStateOf("") }
+	var difficulty by remember { mutableStateOf("") }
+	var durationMinutes by remember { mutableStateOf("") }
+	var startLatitude by remember { mutableStateOf("") }
+	var startLongitude by remember { mutableStateOf("") }
+
+	var locationName by remember { mutableStateOf("") }
+	var locationLatitude by remember { mutableStateOf("") }
+	var locationLongitude by remember { mutableStateOf("") }
+	var locations by remember { mutableStateOf<List<AdventureLocationDraft>>(emptyList()) }
+
+	var isSubmitting by remember { mutableStateOf(false) }
+	var errorMessage by remember { mutableStateOf<String?>(null) }
+
+	fun addLocation() {
+		val parsedLatitude = locationLatitude.toDoubleOrNull()
+		val parsedLongitude = locationLongitude.toDoubleOrNull()
+
+		when {
+			locationName.isBlank() -> errorMessage = "Bitte gib einen Namen fuer den Ort ein."
+			parsedLatitude == null || parsedLongitude == null -> {
+				errorMessage = "Bitte gib gueltige Koordinaten fuer den Ort ein."
+			}
+			!isValidLatitude(parsedLatitude) || !isValidLongitude(parsedLongitude) -> {
+				errorMessage = "Koordinaten muessen in gueltigen Bereichen liegen."
+			}
+			else -> {
+				errorMessage = null
+				locations = locations + AdventureLocationDraft(
+					name = locationName.trim(),
+					point = GeoPoint(latitude = parsedLatitude, longitude = parsedLongitude),
+				)
+				locationName = ""
+				locationLatitude = ""
+				locationLongitude = ""
+			}
+		}
+	}
+
+	AlertDialog(
+		onDismissRequest = {
+			if (!isSubmitting) {
+				onDismiss()
+			}
+		},
+		title = { Text("Neues Abenteuer") },
+		text = {
+			LazyColumn(
+				verticalArrangement = Arrangement.spacedBy(8.dp),
+			) {
+				item {
+					OutlinedTextField(
+						value = title,
+						onValueChange = {
+							title = it
+							errorMessage = null
+						},
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text("Titel") },
+						singleLine = true,
+					)
+				}
+				item {
+					OutlinedTextField(
+						value = summary,
+						onValueChange = {
+							summary = it
+							errorMessage = null
+						},
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text("Kurzbeschreibung") },
+					)
+				}
+				item {
+					OutlinedTextField(
+						value = difficulty,
+						onValueChange = { difficulty = it },
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text("Schwierigkeit (optional)") },
+						singleLine = true,
+					)
+				}
+				item {
+					OutlinedTextField(
+						value = durationMinutes,
+						onValueChange = { durationMinutes = it },
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text("Dauer in Minuten (optional)") },
+						singleLine = true,
+					)
+				}
+				item {
+					Text(
+						text = "Startpunkt",
+						style = MaterialTheme.typography.titleSmall,
+					)
+				}
+				item {
+					OutlinedTextField(
+						value = startLatitude,
+						onValueChange = { startLatitude = it },
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text("Start Latitude") },
+						singleLine = true,
+					)
+				}
+				item {
+					OutlinedTextField(
+						value = startLongitude,
+						onValueChange = { startLongitude = it },
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text("Start Longitude") },
+						singleLine = true,
+					)
+				}
+				item {
+					Text(
+						text = "Orte fuer das Abenteuer",
+						style = MaterialTheme.typography.titleSmall,
+					)
+				}
+				item {
+					OutlinedTextField(
+						value = locationName,
+						onValueChange = { locationName = it },
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text("Ort Name") },
+						singleLine = true,
+					)
+				}
+				item {
+					OutlinedTextField(
+						value = locationLatitude,
+						onValueChange = { locationLatitude = it },
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text("Ort Latitude") },
+						singleLine = true,
+					)
+				}
+				item {
+					OutlinedTextField(
+						value = locationLongitude,
+						onValueChange = { locationLongitude = it },
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text("Ort Longitude") },
+						singleLine = true,
+					)
+				}
+				item {
+					Button(
+						onClick = { addLocation() },
+						modifier = Modifier.fillMaxWidth(),
+					) {
+						Text("Ort hinzufuegen")
+					}
+				}
+				if (locations.isNotEmpty()) {
+					item {
+						Text(
+							text = "Hinzugefuegte Orte",
+							style = MaterialTheme.typography.titleSmall,
+						)
+					}
+					items(items = locations, key = { it.name + it.point.latitude + it.point.longitude }) { location ->
+						Row(
+							modifier = Modifier.fillMaxWidth(),
+							horizontalArrangement = Arrangement.SpaceBetween,
+							verticalAlignment = Alignment.CenterVertically,
+						) {
+							Text(
+								text = location.name,
+								style = MaterialTheme.typography.bodyMedium,
+							)
+							TextButton(
+								onClick = { locations = locations - location },
+								enabled = !isSubmitting,
+							) {
+								Text("Entfernen")
+							}
+						}
+					}
+				}
+				if (errorMessage != null) {
+					item {
+						Text(
+							text = errorMessage.orEmpty(),
+							color = MaterialTheme.colorScheme.error,
+							style = MaterialTheme.typography.bodySmall,
+						)
+					}
+				}
+			}
+		},
+		confirmButton = {
+			Button(
+				onClick = {
+					val parsedStartLatitude = startLatitude.toDoubleOrNull()
+					val parsedStartLongitude = startLongitude.toDoubleOrNull()
+					val parsedDuration = durationMinutes.toIntOrNull()
+
+					when {
+						title.isBlank() -> errorMessage = "Bitte gib einen Titel ein."
+						summary.isBlank() -> errorMessage = "Bitte gib eine Kurzbeschreibung ein."
+						parsedStartLatitude == null || parsedStartLongitude == null -> {
+							errorMessage = "Bitte gib gueltige Startkoordinaten ein."
+						}
+						!isValidLatitude(parsedStartLatitude) || !isValidLongitude(parsedStartLongitude) -> {
+							errorMessage = "Startkoordinaten muessen in gueltigen Bereichen liegen."
+						}
+						parsedDuration != null && parsedDuration <= 0 -> {
+							errorMessage = "Die Dauer muss groesser als 0 sein."
+						}
+						locations.isEmpty() -> {
+							errorMessage = "Bitte fuege mindestens einen Ort hinzu."
+						}
+						else -> {
+							errorMessage = null
+							isSubmitting = true
+							scope.launch {
+								runCatching {
+									createAdventure(
+										AdventureDraft(
+											title = title.trim(),
+											summary = summary.trim(),
+											startPoint = GeoPoint(
+												latitude = parsedStartLatitude,
+												longitude = parsedStartLongitude,
+											),
+											difficulty = difficulty.takeIf { it.isNotBlank() }?.trim(),
+											estimatedDurationMinutes = parsedDuration,
+											locations = locations,
+										),
+									)
+								}.onSuccess { createdAdventure ->
+									onAdventureCreated(createdAdventure)
+									onDismiss()
+								}.onFailure { throwable ->
+									errorMessage = throwable.message ?: "Abenteuer konnte nicht gespeichert werden."
+								}
+								isSubmitting = false
+							}
+						}
+					}
+				},
+				enabled = !isSubmitting,
+			) {
+				if (isSubmitting) {
+					CircularProgressIndicator(
+						modifier = Modifier.size(18.dp),
+						strokeWidth = 2.dp,
+					)
+				} else {
+					Text("Speichern")
+				}
+			}
+		},
+		dismissButton = {
+			TextButton(onClick = onDismiss, enabled = !isSubmitting) {
+				Text("Abbrechen")
+			}
+		},
+	)
+}
+
+private fun isValidLatitude(value: Double): Boolean = value in -90.0..90.0
+
+private fun isValidLongitude(value: Double): Boolean = value in -180.0..180.0
 
 @Composable
 fun AdventureListScreen(
@@ -323,6 +599,13 @@ private fun AdventureCard(
 					text = adventure.title,
 					style = MaterialTheme.typography.titleMedium,
 				)
+				if (adventure.difficulty != null || adventure.estimatedDurationMinutes != null) {
+					Text(
+						text = buildMetadataLabel(adventure),
+						style = MaterialTheme.typography.labelMedium,
+						color = MaterialTheme.colorScheme.secondary,
+					)
+				}
 				Text(
 					text = adventure.summary,
 					style = MaterialTheme.typography.bodyMedium,
@@ -361,3 +644,8 @@ private fun distanceLabel(startPoint: GeoPoint, currentLocation: GeoPoint?): Str
 	}
 }
 
+private fun buildMetadataLabel(adventure: Adventure): String {
+	val difficultyPart = adventure.difficulty?.let { "Schwierigkeit: $it" }
+	val durationPart = adventure.estimatedDurationMinutes?.let { "Dauer: $it min" }
+	return listOfNotNull(difficultyPart, durationPart).joinToString(" | ")
+}
