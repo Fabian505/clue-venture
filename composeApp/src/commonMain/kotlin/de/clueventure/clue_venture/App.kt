@@ -179,7 +179,7 @@ fun App() {
 		Scaffold(
 			contentWindowInsets = WindowInsets(0, 0, 0, 0),
 			bottomBar = {
-				if (editingAdventure == null) {
+				if (editingAdventure == null && !showCreateAdventureDialog) {
 					NavigationBar(
 						modifier = Modifier.height(64.dp),
 					) {
@@ -211,7 +211,19 @@ fun App() {
 						adventureRefreshKey += 1
 					},
 				)
-			} ?: when (selectedTab) {
+			} ?: if (showCreateAdventureDialog) {
+				CreateAdventureScreen(
+					modifier = Modifier
+						.fillMaxSize()
+						.padding(innerPadding),
+					currentLocation = currentLocation,
+					onDismiss = { showCreateAdventureDialog = false },
+					onAdventureCreated = {
+						showCreateAdventureDialog = false
+						adventureRefreshKey += 1
+					},
+				)
+			} else when (selectedTab) {
 				BottomTab.Left -> AdventureListScreenWrapper(
 					modifier = Modifier
 						.fillMaxSize()
@@ -249,16 +261,6 @@ fun App() {
 
 				BottomTab.Right -> TodoList()
 			}
-		}
-
-		if (showCreateAdventureDialog) {
-			CreateAdventureDialog(
-				currentLocation = currentLocation,
-				onDismiss = { showCreateAdventureDialog = false },
-				onAdventureCreated = {
-					adventureRefreshKey += 1
-				},
-			)
 		}
 
 		adventurePendingDeletion?.let { adventure ->
@@ -336,7 +338,8 @@ fun App() {
 }
 
 @Composable
-private fun CreateAdventureDialog(
+private fun CreateAdventureScreen(
+	modifier: Modifier = Modifier,
 	currentLocation: GeoPoint?,
 	onDismiss: () -> Unit,
 	onAdventureCreated: (Adventure) -> Unit,
@@ -383,17 +386,92 @@ private fun CreateAdventureDialog(
 		}
 	}
 
-	AlertDialog(
-		onDismissRequest = {
-			if (!isSubmitting) {
-				onDismiss()
+	fun submitCreateAdventure() {
+		val parsedStartLatitude = startLatitude.toDoubleOrNull()
+		val parsedStartLongitude = startLongitude.toDoubleOrNull()
+		val parsedDuration = durationMinutes.toIntOrNull()
+
+		when {
+			title.isBlank() -> errorMessage = "Bitte gib einen Titel ein."
+			summary.isBlank() -> errorMessage = "Bitte gib eine Kurzbeschreibung ein."
+			parsedStartLatitude == null || parsedStartLongitude == null -> {
+				errorMessage = "Bitte gib gueltige Startkoordinaten ein."
 			}
-		},
-		title = { Text("Neues Abenteuer") },
-		text = {
-			LazyColumn(
-				verticalArrangement = Arrangement.spacedBy(8.dp),
+			!isValidLatitude(parsedStartLatitude) || !isValidLongitude(parsedStartLongitude) -> {
+				errorMessage = "Startkoordinaten muessen in gueltigen Bereichen liegen."
+			}
+			parsedDuration != null && parsedDuration <= 0 -> {
+				errorMessage = "Die Dauer muss groesser als 0 sein."
+			}
+			locations.isEmpty() -> {
+				errorMessage = "Bitte fuege mindestens einen Ort hinzu."
+			}
+			else -> {
+				errorMessage = null
+				isSubmitting = true
+				scope.launch {
+					runCatching {
+						createAdventure(
+							AdventureDraft(
+								title = title.trim(),
+								summary = summary.trim(),
+								startPoint = GeoPoint(
+									latitude = parsedStartLatitude,
+									longitude = parsedStartLongitude,
+								),
+								difficulty = difficulty.takeIf { it.isNotBlank() }?.trim(),
+								estimatedDurationMinutes = parsedDuration,
+								locations = locations,
+							),
+						)
+					}.onSuccess { createdAdventure ->
+						onAdventureCreated(createdAdventure)
+					}.onFailure { throwable ->
+						errorMessage = throwable.message ?: "Abenteuer konnte nicht gespeichert werden."
+					}
+					isSubmitting = false
+				}
+			}
+		}
+	}
+
+	Column(
+		modifier = modifier
+			.fillMaxSize()
+			.padding(16.dp),
+		verticalArrangement = Arrangement.spacedBy(12.dp),
+	) {
+		Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+			Text(
+				text = "Neues Abenteuer",
+				style = MaterialTheme.typography.headlineSmall,
+			)
+			Row(
+				modifier = Modifier.fillMaxWidth(),
+				horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+				verticalAlignment = Alignment.CenterVertically,
 			) {
+				TextButton(onClick = onDismiss, enabled = !isSubmitting) {
+					Text("Abbrechen")
+				}
+				Button(onClick = { submitCreateAdventure() }, enabled = !isSubmitting) {
+					if (isSubmitting) {
+						CircularProgressIndicator(
+							modifier = Modifier.size(18.dp),
+							strokeWidth = 2.dp,
+						)
+					} else {
+						Text("Speichern")
+					}
+				}
+			}
+		}
+
+		LazyColumn(
+			modifier = Modifier.fillMaxSize(),
+			verticalArrangement = Arrangement.spacedBy(8.dp),
+			contentPadding = PaddingValues(bottom = 24.dp),
+		) {
 				if (currentLocation == null) {
 					item {
 						Text(
@@ -598,77 +676,8 @@ private fun CreateAdventureDialog(
 					}
 				}
 			}
-		},
-		confirmButton = {
-			Button(
-				onClick = {
-					val parsedStartLatitude = startLatitude.toDoubleOrNull()
-					val parsedStartLongitude = startLongitude.toDoubleOrNull()
-					val parsedDuration = durationMinutes.toIntOrNull()
-
-					when {
-						title.isBlank() -> errorMessage = "Bitte gib einen Titel ein."
-						summary.isBlank() -> errorMessage = "Bitte gib eine Kurzbeschreibung ein."
-						parsedStartLatitude == null || parsedStartLongitude == null -> {
-							errorMessage = "Bitte gib gueltige Startkoordinaten ein."
-						}
-						!isValidLatitude(parsedStartLatitude) || !isValidLongitude(parsedStartLongitude) -> {
-							errorMessage = "Startkoordinaten muessen in gueltigen Bereichen liegen."
-						}
-						parsedDuration != null && parsedDuration <= 0 -> {
-							errorMessage = "Die Dauer muss groesser als 0 sein."
-						}
-						locations.isEmpty() -> {
-							errorMessage = "Bitte fuege mindestens einen Ort hinzu."
-						}
-						else -> {
-							errorMessage = null
-							isSubmitting = true
-							scope.launch {
-								runCatching {
-									createAdventure(
-										AdventureDraft(
-											title = title.trim(),
-											summary = summary.trim(),
-											startPoint = GeoPoint(
-												latitude = parsedStartLatitude,
-												longitude = parsedStartLongitude,
-											),
-											difficulty = difficulty.takeIf { it.isNotBlank() }?.trim(),
-											estimatedDurationMinutes = parsedDuration,
-											locations = locations,
-										),
-									)
-								}.onSuccess { createdAdventure ->
-									onAdventureCreated(createdAdventure)
-									onDismiss()
-								}.onFailure { throwable ->
-									errorMessage = throwable.message ?: "Abenteuer konnte nicht gespeichert werden."
-								}
-								isSubmitting = false
-							}
-						}
-					}
-				},
-				enabled = !isSubmitting,
-			) {
-				if (isSubmitting) {
-					CircularProgressIndicator(
-						modifier = Modifier.size(18.dp),
-						strokeWidth = 2.dp,
-					)
-				} else {
-					Text("Speichern")
-				}
-			}
-		},
-		dismissButton = {
-			TextButton(onClick = onDismiss, enabled = !isSubmitting) {
-				Text("Abbrechen")
-			}
-		},
-	)
-}
+		}
+	}
 
 @Composable
 private fun EditAdventureScreen(
