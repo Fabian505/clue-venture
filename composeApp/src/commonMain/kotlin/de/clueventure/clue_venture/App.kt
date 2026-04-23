@@ -20,12 +20,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -165,8 +167,12 @@ fun App() {
 	var searchQuery by remember { mutableStateOf("") }
 	var currentLocation by remember { mutableStateOf<GeoPoint?>(null) }
 	var routeTargets by remember { mutableStateOf<List<GeoPoint>>(emptyList()) }
+	var routedAdventureId by remember { mutableStateOf<String?>(null) }
 	var showCreateAdventureDialog by remember { mutableStateOf(false) }
 	var editingAdventure by remember { mutableStateOf<Adventure?>(null) }
+	var adventurePendingDeletion by remember { mutableStateOf<Adventure?>(null) }
+	var isDeletingAdventure by remember { mutableStateOf(false) }
+	var deleteErrorMessage by remember { mutableStateOf<String?>(null) }
 	var adventureRefreshKey by remember { mutableStateOf(0) }
 
 	MaterialTheme {
@@ -201,6 +207,7 @@ fun App() {
 					currentLocation = currentLocation,
 					refreshKey = adventureRefreshKey,
 					onNavigateToStart = { adventure ->
+						routedAdventureId = adventure.id
 						routeTargets = listOf(adventure.startPoint)
 						selectedTab = BottomTab.Map
 						appScope.launch {
@@ -211,6 +218,10 @@ fun App() {
 					onCreateAdventure = { showCreateAdventureDialog = true },
 					onEditAdventure = { adventure ->
 						editingAdventure = adventure
+					},
+					onDeleteAdventure = { adventure ->
+						adventurePendingDeletion = adventure
+						deleteErrorMessage = null
 					},
 				)
 
@@ -243,6 +254,78 @@ fun App() {
 				onDismiss = { editingAdventure = null },
 				onAdventureUpdated = {
 					adventureRefreshKey += 1
+				},
+			)
+		}
+
+		adventurePendingDeletion?.let { adventure ->
+			AlertDialog(
+				onDismissRequest = {
+					if (!isDeletingAdventure) {
+						adventurePendingDeletion = null
+					}
+				},
+				title = { Text("Abenteuer loeschen") },
+				text = {
+					Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+						Text("Willst du '${adventure.title}' wirklich loeschen?")
+						Text(
+							"Alle zugehoerigen Orte werden ebenfalls geloescht.",
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+						if (deleteErrorMessage != null) {
+							Text(
+								text = deleteErrorMessage.orEmpty(),
+								color = MaterialTheme.colorScheme.error,
+								style = MaterialTheme.typography.bodySmall,
+							)
+						}
+					}
+				},
+				confirmButton = {
+					Button(
+						onClick = {
+							isDeletingAdventure = true
+							deleteErrorMessage = null
+							appScope.launch {
+								runCatching {
+									deleteAdventure(adventure.id)
+								}.onSuccess {
+									if (routedAdventureId == adventure.id) {
+										routeTargets = emptyList()
+										routedAdventureId = null
+									}
+									if (editingAdventure?.id == adventure.id) {
+										editingAdventure = null
+									}
+									adventurePendingDeletion = null
+									adventureRefreshKey += 1
+								}.onFailure { throwable ->
+									deleteErrorMessage = throwable.message ?: "Abenteuer konnte nicht geloescht werden."
+								}
+								isDeletingAdventure = false
+							}
+						},
+						enabled = !isDeletingAdventure,
+					) {
+						if (isDeletingAdventure) {
+							CircularProgressIndicator(
+								modifier = Modifier.size(18.dp),
+								strokeWidth = 2.dp,
+							)
+						} else {
+							Text("Loeschen")
+						}
+					}
+				},
+				dismissButton = {
+					TextButton(
+						onClick = { adventurePendingDeletion = null },
+						enabled = !isDeletingAdventure,
+					) {
+						Text("Abbrechen")
+					}
 				},
 			)
 		}
@@ -1048,6 +1131,7 @@ fun AdventureListScreen(
 	onNavigateToStart: (Adventure) -> Unit,
 	onCreateAdventure: () -> Unit,
 	onEditAdventure: (Adventure) -> Unit,
+	onDeleteAdventure: (Adventure) -> Unit,
 	adventures: List<Adventure>,
 ) {
 	val visibleAdventures = remember(searchQuery, currentLocation, adventures) {
@@ -1100,6 +1184,7 @@ fun AdventureListScreen(
 						currentLocation = currentLocation,
 						onNavigateToStart = { onNavigateToStart(adventure) },
 						onEditAdventure = { onEditAdventure(adventure) },
+						onDeleteAdventure = { onDeleteAdventure(adventure) },
 					)
 				}
 			}
@@ -1123,7 +1208,10 @@ private fun AdventureCard(
 	currentLocation: GeoPoint?,
 	onNavigateToStart: () -> Unit,
 	onEditAdventure: () -> Unit,
+	onDeleteAdventure: () -> Unit,
 ) {
+	var showActionsMenu by remember(adventure.id) { mutableStateOf(false) }
+
 	Card(
 		modifier = Modifier.fillMaxWidth(),
 		colors = CardDefaults.cardColors(
@@ -1162,8 +1250,29 @@ private fun AdventureCard(
 				Button(onClick = onNavigateToStart) {
 					Text("Zum Startpunkt")
 				}
-				OutlinedButton(onClick = onEditAdventure) {
-					Text("Bearbeiten")
+				Box {
+					IconButton(onClick = { showActionsMenu = true }) {
+						Text("...")
+					}
+					DropdownMenu(
+						expanded = showActionsMenu,
+						onDismissRequest = { showActionsMenu = false },
+					) {
+						DropdownMenuItem(
+							text = { Text("Bearbeiten") },
+							onClick = {
+								showActionsMenu = false
+								onEditAdventure()
+							},
+						)
+						DropdownMenuItem(
+							text = { Text("Loeschen") },
+							onClick = {
+								showActionsMenu = false
+								onDeleteAdventure()
+							},
+						)
+					}
 				}
 			}
 		}

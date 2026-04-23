@@ -4,6 +4,8 @@ expect suspend fun getAdventures(): List<Adventure>
 
 expect suspend fun createAdventure(draft: AdventureDraft): Adventure
 
+expect suspend fun deleteAdventure(adventureId: String)
+
 expect suspend fun getAdventureLocations(adventureId: String): List<AdventureLocation>
 
 expect suspend fun deleteAdventureLocation(adventureId: String, orderIndex: Int)

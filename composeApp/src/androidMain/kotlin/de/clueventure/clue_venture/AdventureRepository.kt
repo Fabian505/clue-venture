@@ -53,6 +53,20 @@ actual suspend fun createAdventure(draft: AdventureDraft): Adventure = withConte
     )
 }
 
+actual suspend fun deleteAdventure(adventureId: String): Unit = withContext(Dispatchers.IO) {
+    val numericAdventureId = adventureId.toLongOrNull()
+        ?: throw IllegalArgumentException("Invalid adventure id: $adventureId")
+
+    supabaseClient.from("adventures")
+        .delete {
+            filter {
+                eq("id", numericAdventureId)
+            }
+        }
+
+    Unit
+}
+
 actual suspend fun getAdventureLocations(adventureId: String): List<AdventureLocation> = withContext(Dispatchers.IO) {
     val numericAdventureId = adventureId.toLongOrNull() ?: return@withContext emptyList()
 

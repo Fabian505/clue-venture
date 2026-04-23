@@ -18,6 +18,7 @@ fun AdventureListScreenWrapper(
     onNavigateToStart: (Adventure) -> Unit,
     onCreateAdventure: () -> Unit,
     onEditAdventure: (Adventure) -> Unit,
+    onDeleteAdventure: (Adventure) -> Unit,
 ) {
     var adventures by remember { mutableStateOf<List<Adventure>>(listOf()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -36,6 +37,7 @@ fun AdventureListScreenWrapper(
         onNavigateToStart = onNavigateToStart,
         onCreateAdventure = onCreateAdventure,
         onEditAdventure = onEditAdventure,
+        onDeleteAdventure = onDeleteAdventure,
         adventures = if (isLoading) emptyList() else adventures,
     )
 }
