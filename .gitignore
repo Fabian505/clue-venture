@@ -46,6 +46,10 @@ node_modules/
 composeApp/src/graphify-out/cache/
 composeApp/src/graphify-out/*
 
-/graphify-out/cache/*
-/graphify-out/*
-/.opencode/*
+# Graphify
+graphify-out/cache/
+graphify-out/manifest.json
+graphify-out/cost.json
+
+# OpenCode
+.opencode/
