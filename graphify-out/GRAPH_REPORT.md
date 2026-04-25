@@ -1,7 +1,7 @@
-# Graph Report - clue-venture  (2026-04-24)
+# Graph Report - clue-venture  (2026-04-25)
 
 ## Corpus Check
-- 26 files · ~31,063 words
+- 26 files · ~69,401 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
