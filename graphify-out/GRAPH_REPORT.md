@@ -1,11 +1,11 @@
 # Graph Report - clue-venture  (2026-04-25)
 
 ## Corpus Check
-- 26 files · ~69,401 words
+- 26 files · ~65,542 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 121 nodes · 104 edges · 13 communities detected
+- 123 nodes · 106 edges · 13 communities detected
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 1 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
@@ -42,8 +42,8 @@
 ## Communities
 
 ### Community 0 - "Community 0"
-Cohesion: 0.09
-Nodes (6): BottomBarIcons, BottomTab, EditLocationItem, Existing, MapPickerTarget, New
+Cohesion: 0.08
+Nodes (8): AdventureProgressTarget, BottomBarIcons, BottomTab, EditLocationItem, Existing, MapPickerTarget, New, ReachedAdventureTarget
 
 ### Community 2 - "Community 2"
 Cohesion: 0.36
@@ -94,7 +94,7 @@ Cohesion: 1.0
 Nodes (1): TodoItem
 
 ## Knowledge Gaps
-- **22 isolated node(s):** `AndroidPlatform`, `TodoItem`, `AdventureEntity`, `AdventureInsertEntity`, `AdventureUpdateEntity` (+17 more)
+- **24 isolated node(s):** `AndroidPlatform`, `TodoItem`, `AdventureEntity`, `AdventureInsertEntity`, `AdventureUpdateEntity` (+19 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **Thin community `Community 7`** (6 nodes): `MainActivity.kt`, `AppAndroidPreview()`, `MainActivity`, `.hideSystemBars()`, `.onCreate()`, `.onWindowFocusChanged()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
@@ -117,8 +117,8 @@ Nodes (1): TodoItem
 _Questions this graph is uniquely positioned to answer:_
 
 - **What connects `AndroidPlatform`, `TodoItem`, `AdventureEntity` to the rest of the system?**
-  _22 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _24 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 0` be split into smaller, more focused modules?**
-  _Cohesion score 0.09 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.08 - nodes in this community are weakly interconnected._
 - **Should `Community 1` be split into smaller, more focused modules?**
   _Cohesion score 0.13 - nodes in this community are weakly interconnected._
