@@ -5,6 +5,8 @@ package de.clueventure.clue_venture
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.Intent
+import android.provider.Settings
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -107,6 +109,10 @@ actual fun PlatformMap(
             latestLocation = null
             permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
         }
+    }
+
+    if (!isGpsEnabled(context)) {
+        openLocationSettings(context)
     }
 
     val mapView = remember {
@@ -369,6 +375,18 @@ private fun hasLocationPermission(context: Context): Boolean {
         context,
         Manifest.permission.ACCESS_FINE_LOCATION,
     ) == PackageManager.PERMISSION_GRANTED
+}
+
+fun isGpsEnabled(context: Context): Boolean {
+    val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+}
+
+fun openLocationSettings(context: Context) {
+    val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).apply {
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+    }
+    context.startActivity(intent)
 }
 
 private fun isBetterLocation(newLocation: Location, currentBest: Location): Boolean {

@@ -192,6 +192,7 @@ private data class ReachedAdventureTarget(
 @Preview
 fun App() {
 	val appScope = rememberCoroutineScope()
+	var currentUser by remember { mutableStateOf<User?>(null) }
 	var selectedTab by remember { mutableStateOf(BottomTab.Map) }
 	var searchQuery by remember { mutableStateOf("") }
 	var currentLocation by remember { mutableStateOf<GeoPoint?>(null) }
@@ -213,6 +214,7 @@ fun App() {
 	var isAdventureOverlayExpanded by remember { mutableStateOf(true) }
 	var showEndAdventureConfirmation by remember { mutableStateOf(false) }
 	var adventureRefreshKey by remember { mutableStateOf(0) }
+	var activeAdventure by remember { mutableStateOf<Adventure?>(null) }
 	val snackbarHostState = remember { SnackbarHostState() }
 
 	fun clearActiveAdventure() {
@@ -262,132 +264,163 @@ fun App() {
 	}
 
 	MaterialTheme {
-		Scaffold(
-			contentWindowInsets = WindowInsets(0, 0, 0, 0),
-			snackbarHost = {
-				SnackbarHost(hostState = snackbarHostState)
-			},
-			bottomBar = {
-				if (editingAdventure == null && !showCreateAdventureDialog) {
-					NavigationBar(
-						modifier = Modifier.height(64.dp),
-					) {
-						BottomTab.entries.forEach { tab ->
-							NavigationBarItem(
-								selected = selectedTab == tab,
-								onClick = { selectedTab = tab },
-								icon = {
-									Icon(
-										imageVector = tab.icon,
-										contentDescription = tab.contentDescription,
-									)
-								},
-							)
+		if (currentUser == null) {
+			// Show login/register screen if not authenticated
+			AuthScreen(
+				onLoginSuccess = {
+					currentUser = it
+				},
+				onNavigateToAdventureList = { },
+				modifier = Modifier.fillMaxSize(),
+			)
+		} else {
+			// Show main app after authentication
+			Scaffold(
+				contentWindowInsets = WindowInsets(0, 0, 0, 0),
+				snackbarHost = {
+					SnackbarHost(hostState = snackbarHostState)
+				},
+				bottomBar = {
+					if (editingAdventure == null && !showCreateAdventureDialog && activeAdventure == null) {
+						NavigationBar(
+							modifier = Modifier.height(64.dp),
+						) {
+							BottomTab.entries.forEach { tab ->
+								NavigationBarItem(
+									selected = selectedTab == tab,
+									onClick = { selectedTab = tab },
+									icon = {
+										Icon(
+											imageVector = tab.icon,
+											contentDescription = tab.contentDescription,
+										)
+									},
+								)
+							}
 						}
 					}
-				}
-			},
-		) { innerPadding ->
-			editingAdventure?.let { adventure ->
-				EditAdventureScreen(
-					modifier = Modifier
-						.fillMaxSize()
-						.padding(innerPadding),
-					adventure = adventure,
-					currentLocation = currentLocation,
-					onDismiss = { editingAdventure = null },
-					onAdventureUpdated = {
-						adventureRefreshKey += 1
-					},
-				)
-			} ?: if (showCreateAdventureDialog) {
-				CreateAdventureScreen(
-					modifier = Modifier
-						.fillMaxSize()
-						.padding(innerPadding),
-					currentLocation = currentLocation,
-					onDismiss = { showCreateAdventureDialog = false },
-					onAdventureCreated = {
-						showCreateAdventureDialog = false
-						adventureRefreshKey += 1
-					},
-				)
-			} else when (selectedTab) {
-				BottomTab.Left -> AdventureListScreenWrapper(
-					modifier = Modifier
-						.fillMaxSize()
-						.padding(innerPadding),
-					searchQuery = searchQuery,
-					onSearchQueryChange = { searchQuery = it },
-					currentLocation = currentLocation,
-					refreshKey = adventureRefreshKey,
-					onNavigateToStart = { adventure ->
-						routedAdventureId = adventure.id
-						routeTargets = listOf(adventure.startPoint)
-						activeAdventureForOverlay = null
-						activeAdventureTargets = emptyList()
-						currentAdventureTargetIndex = 0
-						reachedAdventureTarget = null
-						completedAdventureTitle = null
-						showEndAdventureConfirmation = false
-						selectedTab = BottomTab.Map
-						appScope.launch {
-							val locations = getAdventureLocations(adventure.id)
-							routeTargets = listOf(adventure.startPoint) + locations.map { it.point }
-						}
-					},
-					onStartAdventure = { adventure ->
-						if (canStartAdventure(adventure.startPoint, currentLocation)) {
-							adventurePendingStart = adventure
-							startErrorMessage = null
-						}
-					},
-					onCreateAdventure = { showCreateAdventureDialog = true },
-					onEditAdventure = { adventure ->
-						editingAdventure = adventure
-					},
-					onDeleteAdventure = { adventure ->
-						adventurePendingDeletion = adventure
-						deleteErrorMessage = null
-					},
-				)
-
-				BottomTab.Map -> Box(
-					modifier = Modifier
-						.fillMaxSize()
-						.padding(innerPadding),
-				) {
-					PlatformMap(
-						modifier = Modifier.fillMaxSize(),
-						routeTargets = routeTargets,
-						onCurrentLocationChanged = { currentLocation = it },
+				},
+			) { innerPadding ->
+				// Show game screen if adventure is active
+				activeAdventure?.let { adventure ->
+					AdventureGameScreen(
+						adventure = adventure,
+						userId = currentUser?.id ?: return@let,
+						currentLocation = currentLocation,
+						onAdventureComplete = { points ->
+							appScope.launch {
+								snackbarHostState.showSnackbar(
+									message = "🎉 $points Punkte verdient!",
+									duration = androidx.compose.material3.SnackbarDuration.Long,
+								)
+							}
+							activeAdventure = null
+							adventureRefreshKey += 1
+						},
+						onClose = { activeAdventure = null },
+						modifier = Modifier
+							.fillMaxSize()
+							.padding(innerPadding),
 					)
-
-					activeAdventureForOverlay?.let { adventure ->
-						ActiveAdventureOverlay(
-							adventure = adventure,
-							targets = activeAdventureTargets,
-							currentTargetIndex = currentAdventureTargetIndex,
-							currentLocation = currentLocation,
-							isExpanded = isAdventureOverlayExpanded,
-							onToggleExpanded = {
-								isAdventureOverlayExpanded = !isAdventureOverlayExpanded
-							},
-							onEndAdventure = {
-								showEndAdventureConfirmation = true
-							},
+				} ?: run {
+					editingAdventure?.let { adventure ->
+						EditAdventureScreen(
 							modifier = Modifier
-								.align(Alignment.TopCenter)
-								.fillMaxWidth()
-								.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
-								.padding(horizontal = 12.dp, vertical = 8.dp),
+								.fillMaxSize()
+								.padding(innerPadding),
+							adventure = adventure,
+							currentLocation = currentLocation,
+							onDismiss = { editingAdventure = null },
+							onAdventureUpdated = {
+								adventureRefreshKey += 1
+							},
 						)
+					} ?: if (showCreateAdventureDialog) {
+						CreateAdventureScreen(
+							modifier = Modifier
+								.fillMaxSize()
+								.padding(innerPadding),
+							currentLocation = currentLocation,
+							onDismiss = { showCreateAdventureDialog = false },
+							onAdventureCreated = {
+								showCreateAdventureDialog = false
+								adventureRefreshKey += 1
+							},
+						)
+					} else when (selectedTab) {
+						BottomTab.Left -> AdventureListScreenWrapper(
+							modifier = Modifier
+								.fillMaxSize()
+								.padding(innerPadding),
+							searchQuery = searchQuery,
+							onSearchQueryChange = { searchQuery = it },
+							currentLocation = currentLocation,
+							refreshKey = adventureRefreshKey,
+							onNavigateToStart = { adventure ->
+								routedAdventureId = adventure.id
+								routeTargets = listOf(adventure.startPoint)
+								activeAdventureForOverlay = null
+								activeAdventureTargets = emptyList()
+								currentAdventureTargetIndex = 0
+								reachedAdventureTarget = null
+								completedAdventureTitle = null
+								showEndAdventureConfirmation = false
+								selectedTab = BottomTab.Map
+								appScope.launch {
+									val locations = getAdventureLocations(adventure.id)
+									routeTargets = listOf(adventure.startPoint) + locations.map { it.point }
+								}
+							},
+							onStartAdventure = { adventure ->
+								activeAdventure = adventure
+							},
+							onCreateAdventure = { showCreateAdventureDialog = true },
+							onEditAdventure = { adventure ->
+								editingAdventure = adventure
+							},
+							onDeleteAdventure = { adventure ->
+								adventurePendingDeletion = adventure
+								deleteErrorMessage = null
+							},
+						)
+
+						BottomTab.Map -> Box(
+							modifier = Modifier
+								.fillMaxSize()
+								.padding(innerPadding),
+						) {
+							PlatformMap(
+								modifier = Modifier.fillMaxSize(),
+								routeTargets = routeTargets,
+								onCurrentLocationChanged = { currentLocation = it },
+							)
+
+							activeAdventureForOverlay?.let { adventure ->
+								ActiveAdventureOverlay(
+									adventure = adventure,
+									targets = activeAdventureTargets,
+									currentTargetIndex = currentAdventureTargetIndex,
+									currentLocation = currentLocation,
+									isExpanded = isAdventureOverlayExpanded,
+									onToggleExpanded = {
+										isAdventureOverlayExpanded = !isAdventureOverlayExpanded
+									},
+									onEndAdventure = {
+										showEndAdventureConfirmation = true
+									},
+									modifier = Modifier
+										.align(Alignment.TopCenter)
+										.fillMaxWidth()
+										.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+										.padding(horizontal = 12.dp, vertical = 8.dp),
+								)
+							}
+						}
+
+						BottomTab.Right -> Box(modifier = Modifier.fillMaxSize())
 					}
 				}
-
-				BottomTab.Right -> Box(modifier = Modifier.fillMaxSize())
 			}
-		}
 
 		adventurePendingDeletion?.let { adventure ->
 			AlertDialog(
@@ -1725,6 +1758,8 @@ fun AdventureListScreen(
 	onCreateAdventure: () -> Unit,
 	onEditAdventure: (Adventure) -> Unit,
 	onDeleteAdventure: (Adventure) -> Unit,
+	isLoading: Boolean,
+	loadError: Boolean,
 	adventures: List<Adventure>,
 ) {
 	val visibleAdventures = remember(searchQuery, currentLocation, adventures) {
@@ -1764,23 +1799,35 @@ fun AdventureListScreen(
 				placeholder = { Text("z. B. Rätsel") },
 			)
 
-			LazyColumn(
-				modifier = Modifier.weight(1f),
-				verticalArrangement = Arrangement.spacedBy(12.dp),
-				contentPadding = PaddingValues(bottom = 88.dp),
-			) {
-				items(
-					items = visibleAdventures,
-					key = { it.id },
-				) { adventure ->
-					AdventureCard(
-						adventure = adventure,
-						currentLocation = currentLocation,
-						onNavigateToStart = { onNavigateToStart(adventure) },
-						onStartAdventure = { onStartAdventure(adventure) },
-						onEditAdventure = { onEditAdventure(adventure) },
-						onDeleteAdventure = { onDeleteAdventure(adventure) },
+			if (!isLoading && (visibleAdventures.isEmpty() || loadError)) {
+				Box(
+					modifier = Modifier.weight(1f),
+					contentAlignment = Alignment.Center,
+				) {
+					Text(
+						text = if (loadError) "Keine Abenteuer konnten geladen werden." else "Keine Abenteuer gefunden.",
+						style = MaterialTheme.typography.bodyLarge,
 					)
+				}
+			} else {
+				LazyColumn(
+					modifier = Modifier.weight(1f),
+					verticalArrangement = Arrangement.spacedBy(12.dp),
+					contentPadding = PaddingValues(bottom = 88.dp),
+				) {
+					items(
+						items = visibleAdventures,
+						key = { it.id },
+					) { adventure ->
+						AdventureCard(
+							adventure = adventure,
+							currentLocation = currentLocation,
+							onNavigateToStart = { onNavigateToStart(adventure) },
+							onStartAdventure = { onStartAdventure(adventure) },
+							onEditAdventure = { onEditAdventure(adventure) },
+							onDeleteAdventure = { onDeleteAdventure(adventure) },
+						)
+					}
 				}
 			}
 		}

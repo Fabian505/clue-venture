@@ -23,10 +23,17 @@ fun AdventureListScreenWrapper(
 ) {
     var adventures by remember { mutableStateOf<List<Adventure>>(listOf()) }
     var isLoading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf(false) }
 
     LaunchedEffect(refreshKey) {
         isLoading = true
-        adventures = getAdventures()
+        loadError = false
+        try {
+            adventures = getAdventures()
+        } catch (t: Throwable) {
+            adventures = emptyList()
+            loadError = true
+        }
         isLoading = false
     }
 
@@ -41,5 +48,7 @@ fun AdventureListScreenWrapper(
         onEditAdventure = onEditAdventure,
         onDeleteAdventure = onDeleteAdventure,
         adventures = if (isLoading) emptyList() else adventures,
+        isLoading = isLoading,
+        loadError = loadError,
     )
 }

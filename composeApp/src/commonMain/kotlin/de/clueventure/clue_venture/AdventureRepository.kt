@@ -15,3 +15,41 @@ expect suspend fun reorderAdventureLocations(adventureId: String, orderedCurrent
 expect suspend fun updateAdventure(adventureId: String, draft: AdventureMetadataDraft): Adventure
 
 expect suspend fun appendAdventureLocations(adventureId: String, locations: List<AdventureLocationDraft>): List<AdventureLocation>
+
+// ============================================================================
+// QUIZ REPOSITORY FUNCTIONS
+// ============================================================================
+
+expect suspend fun getQuizQuestions(adventureId: String): List<QuizQuestion>
+
+expect suspend fun getQuizAnswers(questionId: Long): List<QuizAnswer>
+
+expect suspend fun submitQuizAnswer(attemptId: Long, questionId: Long, answerId: Long): Boolean
+
+// ============================================================================
+// AUTHENTICATION REPOSITORY FUNCTIONS
+// ============================================================================
+
+expect suspend fun authenticateUser(email: String, password: String): User?
+
+expect suspend fun registerUser(email: String, password: String, username: String): User?
+
+expect suspend fun getCurrentUser(): User?
+
+expect suspend fun logoutUser()
+
+expect suspend fun getUserProfile(userId: String): UserProfile?
+
+// ============================================================================
+// ADVENTURE ATTEMPT REPOSITORY FUNCTIONS
+// ============================================================================
+
+expect suspend fun startAdventureAttempt(adventureId: String, userId: String): AdventureAttempt
+
+expect suspend fun finishAdventureAttempt(attemptId: Long): Int
+
+expect suspend fun updateUserProgress(attemptId: Long, checkpointIndex: Int, userLocation: GeoPointState?): UserProgress
+
+expect suspend fun getUserProgress(attemptId: Long): UserProgress?
+
+expect suspend fun getCurrentAttemptForAdventure(adventureId: String, userId: String): AdventureAttempt?

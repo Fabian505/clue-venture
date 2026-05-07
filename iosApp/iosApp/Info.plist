@@ -4,5 +4,9 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Deine Standortdaten werden benötigt, um dich bei der Teilnahme an Abenteuern zu führen und deine Entfernung zu den Checkpoints zu berechnen.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Deine Standortdaten werden benötigt, um dich bei der Teilnahme an Abenteuern zu führen und deine Entfernung zu den Checkpoints zu berechnen.</string>
 </dict>
 </plist>
