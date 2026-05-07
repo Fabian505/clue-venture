@@ -7,7 +7,7 @@
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS public.users (
-    id UUID PRIMARY KEY DEFAULT auth.uid(),
+    id UUID PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
     username TEXT UNIQUE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
@@ -139,6 +139,31 @@ ALTER TABLE public.user_answers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_progress ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.quiz_questions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.quiz_answers ENABLE ROW LEVEL SECURITY;
+
+-- Policy: The current app manages its own user records client-side
+DROP POLICY IF EXISTS "users_readable" ON public.users;
+CREATE POLICY "users_readable" ON public.users
+    FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "users_insertable" ON public.users;
+CREATE POLICY "users_insertable" ON public.users
+    FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "users_updatable" ON public.users;
+CREATE POLICY "users_updatable" ON public.users
+    FOR UPDATE USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "user_profiles_readable" ON public.user_profiles;
+CREATE POLICY "user_profiles_readable" ON public.user_profiles
+    FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "user_profiles_insertable" ON public.user_profiles;
+CREATE POLICY "user_profiles_insertable" ON public.user_profiles
+    FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "user_profiles_updatable" ON public.user_profiles;
+CREATE POLICY "user_profiles_updatable" ON public.user_profiles
+    FOR UPDATE USING (true) WITH CHECK (true);
 
 -- Policy: Users can read public adventure data
 CREATE POLICY "quiz_questions_readable" ON public.quiz_questions

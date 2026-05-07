@@ -6,6 +6,7 @@ import kotlin.math.PI
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlin.random.Random
 
 data class GeoPoint(
     val latitude: Double,
@@ -178,6 +179,18 @@ data class UserProfile(
     val adventuresStarted: Int = 0,
     val lastUpdated: String,
 )
+
+fun generateUserId(): String {
+    val hexChars = "0123456789abcdef"
+
+    fun segment(length: Int): String = buildString(length) {
+        repeat(length) {
+            append(hexChars[Random.nextInt(hexChars.length)])
+        }
+    }
+
+    return listOf(8, 4, 4, 4, 12).joinToString("-") { segment(it) }
+}
 
 // ============================================================================
 // ADVENTURE ATTEMPT & PROGRESS DOMAIN MODELS

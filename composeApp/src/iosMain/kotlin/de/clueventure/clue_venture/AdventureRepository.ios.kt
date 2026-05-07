@@ -2,7 +2,9 @@ package de.clueventure.clue_venture
 
 import io.github.jan.supabase.postgrest.from
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
+import kotlin.time.Clock
 
 actual suspend fun getAdventures(): List<Adventure> = withContext(Dispatchers.IO) {
     try {
@@ -10,7 +12,7 @@ actual suspend fun getAdventures(): List<Adventure> = withContext(Dispatchers.IO
             .select()
             .decodeList<AdventureEntity>()
             .map { it.toAdventure() }
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         sampleAdventures
     }
 }
@@ -67,8 +69,6 @@ actual suspend fun deleteAdventure(adventureId: String): Unit = withContext(Disp
                 eq("id", numericAdventureId)
             }
         }
-
-    Unit
 }
 
 actual suspend fun getAdventureLocations(adventureId: String): List<AdventureLocation> = withContext(Dispatchers.IO) {
@@ -97,8 +97,6 @@ actual suspend fun deleteAdventureLocation(adventureId: String, orderIndex: Int)
                 eq("order_index", orderIndex)
             }
         }
-
-    Unit
 }
 
 actual suspend fun reorderAdventureLocations(adventureId: String, orderedCurrentIndexes: List<Int>): Unit = withContext(Dispatchers.IO) {
@@ -112,9 +110,10 @@ actual suspend fun reorderAdventureLocations(adventureId: String, orderedCurrent
     val currentLocations = getAdventureLocations(adventureId)
     val currentOrderIndexes = currentLocations.map { it.orderIndex }
 
-    if (orderedCurrentIndexes.size != currentOrderIndexes.size || orderedCurrentIndexes.toSet() != currentOrderIndexes.toSet()) {
-        throw IllegalArgumentException("Reorder input does not match existing locations.")
-    }
+    require(
+        orderedCurrentIndexes.size == currentOrderIndexes.size &&
+            orderedCurrentIndexes.toSet() == currentOrderIndexes.toSet(),
+    ) { "Reorder input does not match existing locations." }
 
     val maxOrderIndex = currentOrderIndexes.maxOrNull() ?: -1
     val temporaryBase = maxOrderIndex + currentOrderIndexes.size + 1000
@@ -138,8 +137,6 @@ actual suspend fun reorderAdventureLocations(adventureId: String, orderedCurrent
                 }
             }
     }
-
-    Unit
 }
 
 actual suspend fun updateAdventure(adventureId: String, draft: AdventureMetadataDraft): Adventure = withContext(Dispatchers.IO) {
@@ -229,6 +226,7 @@ actual suspend fun getQuizQuestions(adventureId: String): List<QuizQuestion> = w
     }.getOrDefault(emptyList())
 }
 
+@Suppress("unused")
 actual suspend fun getQuizAnswers(questionId: Long): List<QuizAnswer> = withContext(Dispatchers.IO) {
     return@withContext runCatching {
         supabaseClient.from("quiz_answers")
@@ -240,6 +238,7 @@ actual suspend fun getQuizAnswers(questionId: Long): List<QuizAnswer> = withCont
     }.getOrDefault(emptyList())
 }
 
+@Suppress("unused")
 actual suspend fun submitQuizAnswer(attemptId: Long, questionId: Long, answerId: Long): Boolean = withContext(Dispatchers.IO) {
     return@withContext runCatching {
         val answer = supabaseClient.from("quiz_answers")
@@ -265,6 +264,7 @@ actual suspend fun submitQuizAnswer(attemptId: Long, questionId: Long, answerId:
 // AUTHENTICATION REPOSITORY IMPLEMENTATIONS
 // ============================================================================
 
+@Suppress("UNUSED_PARAMETER")
 actual suspend fun authenticateUser(email: String, password: String): User? = withContext(Dispatchers.IO) {
     return@withContext runCatching {
         val user = supabaseClient.from("users")
@@ -276,6 +276,7 @@ actual suspend fun authenticateUser(email: String, password: String): User? = wi
     }.getOrNull()
 }
 
+@Suppress("UNUSED_PARAMETER")
 actual suspend fun registerUser(email: String, password: String, username: String): User? = withContext(Dispatchers.IO) {
     return@withContext runCatching {
         val newUser = mapOf(
@@ -285,7 +286,9 @@ actual suspend fun registerUser(email: String, password: String, username: Strin
 
         val insertedUser = supabaseClient.from("users")
             .insert(newUser)
-            .select()
+            {
+                select()
+            }
             .decodeSingle<UserEntity>()
 
         // Create user profile
@@ -303,15 +306,16 @@ actual suspend fun registerUser(email: String, password: String, username: Strin
     }.getOrNull()
 }
 
+@Suppress("unused")
 actual suspend fun getCurrentUser(): User? = withContext(Dispatchers.IO) {
     // This would typically retrieve from Supabase Auth session
     // Placeholder implementation
     return@withContext null
 }
 
+@Suppress("unused")
 actual suspend fun logoutUser(): Unit = withContext(Dispatchers.IO) {
     // This would typically clear Supabase Auth session
-    Unit
 }
 
 actual suspend fun getUserProfile(userId: String): UserProfile? = withContext(Dispatchers.IO) {
@@ -337,13 +341,15 @@ actual suspend fun startAdventureAttempt(adventureId: String, userId: String): A
                 mapOf(
                     "adventure_id" to numericAdventureId,
                     "user_id" to userId,
-                    "started_at" to System.currentTimeMillis(),
+                    "started_at" to Clock.System.now().toEpochMilliseconds(),
                     "started_checkpoint_index" to 0,
                     "current_checkpoint_index" to 0,
                     "is_completed" to false,
                 ),
             )
-            .select()
+            {
+                select()
+            }
             .decodeSingle<AdventureAttemptEntity>()
 
         attempt.toAdventureAttempt()
@@ -368,8 +374,9 @@ actual suspend fun finishAdventureAttempt(attemptId: Long): Int = withContext(Di
             .decodeList<AdventureEntity>()
             .find { it.id == attempt.adventureId } ?: return@runCatching 0
 
-        val now = System.currentTimeMillis()
-        val timeSpentSeconds = ((now - attempt.startedAt.toLongOrNull()) / 1000).toInt()
+        val now = Clock.System.now().toEpochMilliseconds()
+        val startedAtMillis = attempt.startedAt.toLongOrNull() ?: now
+        val timeSpentSeconds = ((now - startedAtMillis) / 1000L).toInt()
         val pointsEarned = calculateAdventurePoints(
             timeSpentSeconds,
             adventure.estimatedDurationMinutes ?: 60,
@@ -412,7 +419,7 @@ actual suspend fun updateUserProgress(attemptId: Long, checkpointIndex: Int, use
             "last_location_latitude" to (userLocation?.point?.latitude),
             "last_location_longitude" to (userLocation?.point?.longitude),
             "last_location_update" to userLocation?.timestamp,
-            "updated_at" to System.currentTimeMillis(),
+            "updated_at" to Clock.System.now().toEpochMilliseconds(),
         )
 
         val existingProgress = supabaseClient.from("user_progress")
@@ -430,7 +437,9 @@ actual suspend fun updateUserProgress(attemptId: Long, checkpointIndex: Int, use
         } else {
             supabaseClient.from("user_progress")
                 .insert(progressData + ("attempt_id" to attemptId))
-                .select()
+                {
+                    select()
+                }
                 .decodeSingle<UserProgressEntity>()
         }
 
@@ -438,6 +447,7 @@ actual suspend fun updateUserProgress(attemptId: Long, checkpointIndex: Int, use
     }.getOrThrow()
 }
 
+@Suppress("unused")
 actual suspend fun getUserProgress(attemptId: Long): UserProgress? = withContext(Dispatchers.IO) {
     return@withContext runCatching {
         supabaseClient.from("user_progress")

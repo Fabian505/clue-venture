@@ -286,33 +286,33 @@ actual suspend fun authenticateUser(email: String, password: String): User? = wi
 
 actual suspend fun registerUser(email: String, password: String, username: String): User? = withContext(Dispatchers.IO) {
     return@withContext try {
-        val newUser = mapOf(
-            "email" to email,
-            "username" to username,
+        val newUser = UserInsertEntity(
+            id = generateUserId(),
+            email = email,
+            username = username,
         )
 
         val insertedUser = supabaseClient.from("users")
-            .insert(newUser)
-            {
+            .insert(newUser) {
                 select()
             }
             .decodeSingle<UserEntity>()
 
-        // Create user profile
+        // Create user profile using typed DTO
+        val profileInsert = UserProfileInsertEntity(
+            userId = insertedUser.id,
+            totalPoints = 0,
+            adventuresCompleted = 0,
+            adventuresStarted = 0,
+        )
+
         supabaseClient.from("user_profiles")
-            .insert(
-                mapOf(
-                    "user_id" to insertedUser.id,
-                    "total_points" to 0,
-                    "adventures_completed" to 0,
-                    "adventures_started" to 0,
-                ),
-            )
+            .insert(profileInsert)
 
         insertedUser.toUser()
     } catch (e: Exception) {
         println("Error registering user: ${e.message}")
-        null
+        throw e
     }
 }
 
@@ -358,8 +358,7 @@ actual suspend fun startAdventureAttempt(adventureId: String, userId: String): A
                     "current_checkpoint_index" to 0,
                     "is_completed" to false,
                 ),
-            )
-            {
+            ) {
                 select()
             }
             .decodeSingle<AdventureAttemptEntity>()
@@ -494,4 +493,3 @@ actual suspend fun getCurrentAttemptForAdventure(adventureId: String, userId: St
         null
     }
 }
-

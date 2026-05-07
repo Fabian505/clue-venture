@@ -101,6 +101,22 @@ data class UserProfileEntity(
     @SerialName("last_updated") val lastUpdated: String,
 )
 
+// Insert DTOs for safe serialization
+@Serializable
+data class UserInsertEntity(
+    val id: String,
+    val email: String,
+    val username: String? = null,
+)
+
+@Serializable
+data class UserProfileInsertEntity(
+    @SerialName("user_id") val userId: String,
+    @SerialName("total_points") val totalPoints: Int = 0,
+    @SerialName("adventures_completed") val adventuresCompleted: Int = 0,
+    @SerialName("adventures_started") val adventuresStarted: Int = 0,
+)
+
 // ============================================================================
 // ADVENTURE ATTEMPT ENTITIES
 // ============================================================================
