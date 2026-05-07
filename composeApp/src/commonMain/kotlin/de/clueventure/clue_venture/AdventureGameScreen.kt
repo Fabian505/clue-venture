@@ -232,12 +232,14 @@ fun AdventureGameScreen(
                             questions = quizQuestions,
                             onQuizCompleted = { correct ->
                                 correctAnswerCount = correct
-                                moveToNextCheckpoint(
-                                    adventure,
-                                    currentCheckpointIndex,
-                                    { nextIndex -> currentCheckpointIndex = nextIndex },
-                                    { newState -> gameState = newState },
-                                )
+                                coroutineScope.launch {
+                                    moveToNextCheckpoint(
+                                        adventure,
+                                        currentCheckpointIndex,
+                                        { nextIndex -> currentCheckpointIndex = nextIndex },
+                                        { newState -> gameState = newState },
+                                    )
+                                }
                             },
                             onClose = onClose,
                             modifier = Modifier.fillMaxWidth(),
