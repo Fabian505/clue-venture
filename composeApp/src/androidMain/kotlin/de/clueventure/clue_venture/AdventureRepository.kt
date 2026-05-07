@@ -293,7 +293,9 @@ actual suspend fun registerUser(email: String, password: String, username: Strin
 
         val insertedUser = supabaseClient.from("users")
             .insert(newUser)
-            .select()
+            {
+                select()
+            }
             .decodeSingle<UserEntity>()
 
         // Create user profile
@@ -357,7 +359,9 @@ actual suspend fun startAdventureAttempt(adventureId: String, userId: String): A
                     "is_completed" to false,
                 ),
             )
-            .select()
+            {
+                select()
+            }
             .decodeSingle<AdventureAttemptEntity>()
 
         attempt.toAdventureAttempt()
@@ -386,7 +390,7 @@ actual suspend fun finishAdventureAttempt(attemptId: Long): Int = withContext(Di
             .find { it.id == attempt.adventureId } ?: return@withContext 0
 
         val now = System.currentTimeMillis()
-        val timeSpentSeconds = ((now - attempt.startedAt.toLongOrNull()) / 1000).toInt()
+        val timeSpentSeconds = ((now - attempt.startedAt.toLong()) / 1000).toInt()
         val pointsEarned = calculateAdventurePoints(
             timeSpentSeconds,
             adventure.estimatedDurationMinutes ?: 60,
@@ -450,7 +454,9 @@ actual suspend fun updateUserProgress(attemptId: Long, checkpointIndex: Int, use
         } else {
             supabaseClient.from("user_progress")
                 .insert(progressData + ("attempt_id" to attemptId))
-                .select()
+                {
+                    select()
+                }
                 .decodeSingle<UserProgressEntity>()
         }
 

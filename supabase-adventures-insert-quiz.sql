@@ -75,10 +75,10 @@ INSERT INTO public.quiz_answers (question_id, answer_text, is_correct, answer_or
 SELECT q.id, answer_text, is_correct, answer_order
 FROM (
     SELECT * FROM (VALUES
-        (1, '1', 1870, true, 0),
-        (1, '1', 1890, false, 1),
-        (1, '1', 1910, false, 2),
-        (1, '1', 1930, false, 3),
+        (1, '1', '1870', true, 0),
+        (1, '1', '1890', false, 1),
+        (1, '1', '1910', false, 2),
+        (1, '1', '1930', false, 3),
         (2, '2', 'Kohletransport', true, 0),
         (2, '2', 'Personenverkehr', false, 1),
         (2, '2', 'Maschinenbau', false, 2),
@@ -121,10 +121,10 @@ INSERT INTO public.quiz_answers (question_id, answer_text, is_correct, answer_or
 SELECT q.id, answer_text, is_correct, answer_order
 FROM (
     SELECT * FROM (VALUES
-        (1, '1', 1936, true, 0),
-        (1, '1', 1928, false, 1),
-        (1, '1', 1952, false, 2),
-        (1, '1', 1945, false, 3),
+        (1, '1', '1936', true, 0),
+        (1, '1', '1928', false, 1),
+        (1, '1', '1952', false, 2),
+        (1, '1', '1945', false, 3),
         (2, '2', '210', true, 0),
         (2, '2', '180', false, 1),
         (2, '2', '250', false, 2),
