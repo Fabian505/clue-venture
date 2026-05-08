@@ -368,7 +368,8 @@ fun App() {
                                 selectedTab = BottomTab.Map
                             },
                             onStartAdventure = { adventure ->
-                                activeAdventure = adventure
+                                // show start confirmation & perform distance check before activating
+                                adventurePendingStart = adventure
                             },
                             onCreateAdventure = { showCreateAdventureDialog = true },
                             onEditAdventure = { adventure ->
@@ -563,6 +564,8 @@ fun App() {
                                         isAdventureOverlayExpanded = true
                                         selectedTab = BottomTab.Map
                                     }.onSuccess {
+                                        // Activate the adventure so the game screen is shown
+                                        activeAdventure = adventure
                                         adventurePendingStart = null
                                         snackbarHostState.showSnackbar("Abenteuer gestartet: ${adventure.title}")
                                     }.onFailure { throwable ->
