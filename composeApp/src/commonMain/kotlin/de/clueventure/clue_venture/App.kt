@@ -366,10 +366,6 @@ fun App() {
                                 completedAdventureTitle = null
                                 showEndAdventureConfirmation = false
                                 selectedTab = BottomTab.Map
-                                appScope.launch {
-                                    val locations = getAdventureLocations(adventure.id)
-                                    routeTargets = listOf(adventure.startPoint) + locations.map { it.point }
-                                }
                             },
                             onStartAdventure = { adventure ->
                                 activeAdventure = adventure

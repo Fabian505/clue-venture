@@ -248,11 +248,11 @@ actual suspend fun submitQuizAnswer(attemptId: Long, questionId: Long, answerId:
 
         supabaseClient.from("user_answers")
             .insert(
-                mapOf(
-                    "attempt_id" to attemptId,
-                    "question_id" to questionId,
-                    "answer_id" to answerId,
-                    "is_correct" to answer.isCorrect,
+                UserAnswerInsertEntity(
+                    attemptId = attemptId,
+                    questionId = questionId,
+                    answerId = answerId,
+                    isCorrect = answer.isCorrect,
                 ),
             )
 
@@ -338,13 +338,13 @@ actual suspend fun startAdventureAttempt(adventureId: String, userId: String): A
 
         val attempt = supabaseClient.from("adventure_attempts")
             .insert(
-                mapOf(
-                    "adventure_id" to numericAdventureId,
-                    "user_id" to userId,
-                    "started_at" to Clock.System.now().toEpochMilliseconds(),
-                    "started_checkpoint_index" to 0,
-                    "current_checkpoint_index" to 0,
-                    "is_completed" to false,
+                AdventureAttemptInsertEntity(
+                    adventureId = numericAdventureId,
+                    userId = userId,
+                    startedAt = Clock.System.now().toEpochMilliseconds().toString(),
+                    startedCheckpointIndex = 0,
+                    currentCheckpointIndex = 0,
+                    isCompleted = false,
                 ),
             )
             {
@@ -385,10 +385,11 @@ actual suspend fun finishAdventureAttempt(attemptId: Long): Int = withContext(Di
 
         supabaseClient.from("adventure_attempts")
             .update(
-                mapOf(
-                    "is_completed" to true,
-                    "time_spent_seconds" to timeSpentSeconds,
-                    "points_earned" to pointsEarned,
+                AdventureAttemptFinishEntity(
+                    isCompleted = true,
+                    timeSpentSeconds = timeSpentSeconds,
+                    pointsEarned = pointsEarned,
+                    completedAt = now.toString(),
                 ),
             ) {
                 filter { eq("id", attemptId) }
@@ -414,14 +415,6 @@ actual suspend fun finishAdventureAttempt(attemptId: Long): Int = withContext(Di
 
 actual suspend fun updateUserProgress(attemptId: Long, checkpointIndex: Int, userLocation: GeoPointState?): UserProgress = withContext(Dispatchers.IO) {
     return@withContext runCatching {
-        val progressData = mapOf(
-            "current_checkpoint_index" to checkpointIndex,
-            "last_location_latitude" to (userLocation?.point?.latitude),
-            "last_location_longitude" to (userLocation?.point?.longitude),
-            "last_location_update" to userLocation?.timestamp,
-            "updated_at" to Clock.System.now().toEpochMilliseconds(),
-        )
-
         val existingProgress = supabaseClient.from("user_progress")
             .select()
             .decodeList<UserProgressEntity>()
@@ -429,14 +422,30 @@ actual suspend fun updateUserProgress(attemptId: Long, checkpointIndex: Int, use
 
         val result = if (existingProgress != null) {
             supabaseClient.from("user_progress")
-                .update(progressData) {
+                .update(
+                    UserProgressUpdateEntity(
+                        currentCheckpointIndex = checkpointIndex,
+                        lastLocationLatitude = userLocation?.point?.latitude,
+                        lastLocationLongitude = userLocation?.point?.longitude,
+                        lastLocationUpdate = userLocation?.timestamp,
+                        updatedAt = Clock.System.now().toEpochMilliseconds().toString(),
+                    ),
+                ) {
                     filter { eq("attempt_id", attemptId) }
                     select()
                 }
                 .decodeSingle<UserProgressEntity>()
         } else {
             supabaseClient.from("user_progress")
-                .insert(progressData + ("attempt_id" to attemptId))
+                .insert(
+                    UserProgressInsertEntity(
+                        attemptId = attemptId,
+                        currentCheckpointIndex = checkpointIndex,
+                        lastLocationLatitude = userLocation?.point?.latitude,
+                        lastLocationLongitude = userLocation?.point?.longitude,
+                        lastLocationUpdate = userLocation?.timestamp,
+                    ),
+                )
                 {
                     select()
                 }
