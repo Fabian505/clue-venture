@@ -1,6 +1,5 @@
 package de.clueventure.clue_venture
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.infiniteRepeatable
@@ -10,19 +9,18 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 
 /**
  * ProximityAlertPopup displays hot/cold feedback when user is within 50m of a waypoint
@@ -41,16 +40,14 @@ fun ProximityAlertPopup(
     currentLocation: GeoPoint?,
     targetLocation: GeoPoint,
     isVisible: Boolean,
-    distanceMeters: Double? = null,
     modifier: Modifier = Modifier,
 ) {
     if (!isVisible || currentLocation == null) return
 
     val proximityStatus = currentLocation.proximityStatus(targetLocation, maxRangeMeters = 50.0)
     val displayText = proximityStatus.getDisplayText()
-    val hexColor = proximityStatus.getHexColor()
+    val distanceMeters = currentLocation.distanceTo(targetLocation)
 
-    val bgColor = Color(android.graphics.Color.parseColor(hexColor))
     val animatedScale by androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (proximityStatus == ProximityStatus.VERY_HOT) 1.1f else 1f,
         animationSpec = if (proximityStatus == ProximityStatus.VERY_HOT) {
@@ -97,15 +94,12 @@ fun ProximityAlertPopup(
             )
 
             Spacer(modifier = Modifier.height(8.dp))
-
-            if (distanceMeters != null) {
-                Text(
-                    text = String.format("%.0f m", distanceMeters),
-                    fontSize = 16.sp,
-                    color = Color.White,
-                    textAlign = TextAlign.Center,
-                )
-            }
+            Text(
+                text = proximityDistanceText(distanceMeters),
+                fontSize = 16.sp,
+                color = Color.White,
+                textAlign = TextAlign.Center,
+            )
 
             // Pulse indicator for VERY_HOT status
             if (proximityStatus == ProximityStatus.VERY_HOT) {
@@ -116,6 +110,66 @@ fun ProximityAlertPopup(
                         .clip(RoundedCornerShape(50))
                         .background(Color.White),
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun ProximityFeatureScreen(
+    currentLocation: GeoPoint?,
+    targetLocation: GeoPoint,
+    targetName: String,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val distanceMeters = currentLocation?.distanceTo(targetLocation)
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color(0x99000000)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = "Heißer/Kälter",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+
+            Text(
+                text = "Aktuelles Ziel: $targetName",
+                fontSize = 16.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            ProximityAlertPopup(
+                currentLocation = currentLocation,
+                targetLocation = targetLocation,
+                isVisible = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Text(
+                text = "Diese Ansicht ist verfügbar, wenn du weniger als 40 m vom aktuellen Ziel entfernt bist.",
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Button(onClick = onClose) {
+                Text("Schließen")
             }
         }
     }
@@ -145,6 +199,7 @@ fun NavigationIndicator(
         distance < 200 -> "🧭"
         else -> "🗺️"
     }
+    val distanceText = proximityDistanceText(distance)
 
     Box(
         modifier = modifier
@@ -164,10 +219,20 @@ fun NavigationIndicator(
                 color = MaterialTheme.colorScheme.primary,
             )
             Text(
-                text = String.format("Entfernung: %.0f Meter", distance),
+                text = "Entfernung: $distanceText",
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurface,
             )
         }
     }
 }
+
+private fun proximityDistanceText(distanceMeters: Double): String {
+    return if (distanceMeters >= 1_000) {
+        val kilometers = distanceMeters / 1_000.0
+        "${(kilometers * 10).roundToInt() / 10.0} km"
+    } else {
+        "${distanceMeters.roundToInt()} m"
+    }
+}
+

@@ -80,7 +80,7 @@ fun AdventureGameScreen(
     var finishError by remember { mutableStateOf<String?>(null) }
 
     val currentWaypoint = adventureLocations.getOrNull(currentCheckpointIndex)
-    val isProximityAlertVisible = currentLocationState != null && currentWaypoint != null
+    val isProximityAlertVisible = currentLocationState != null && currentWaypoint != null && distanceToWaypoint < 30.0
     val isWaypointReached = currentLocationState != null && currentWaypoint != null && distanceToWaypoint < 5.0
 
     // Initialize adventure attempt
@@ -272,7 +272,6 @@ fun AdventureGameScreen(
                             currentLocation = currentLocationState?.point,
                             targetLocation = currentWaypoint?.point ?: GeoPoint(0.0, 0.0),
                             isVisible = isProximityAlertVisible,
-                            distanceMeters = distanceToWaypoint,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .align(Alignment.CenterHorizontally),
@@ -291,7 +290,6 @@ fun AdventureGameScreen(
                         currentLocation = currentLocationState?.point,
                         targetLocation = currentWaypoint?.point ?: GeoPoint(0.0, 0.0),
                         isVisible = true,
-                        distanceMeters = distanceToWaypoint,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
