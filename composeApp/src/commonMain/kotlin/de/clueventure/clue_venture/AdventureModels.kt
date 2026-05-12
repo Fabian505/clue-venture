@@ -7,7 +7,9 @@ import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
+import kotlinx.serialization.Serializable
 
+@Serializable
 data class GeoPoint(
     val latitude: Double,
     val longitude: Double,
@@ -164,6 +166,7 @@ data class QuizAnswer(
 // USER & AUTHENTICATION DOMAIN MODELS
 // ============================================================================
 
+@Serializable
 data class User(
     val id: String,
     val email: String,

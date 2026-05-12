@@ -4,7 +4,35 @@ import io.github.jan.supabase.postgrest.from
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import platform.Foundation.NSUserDefaults
 import kotlin.time.Clock
+
+private const val SESSION_KEY = "current_user"
+
+private val sessionJson = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+}
+
+private fun saveCurrentUser(user: User) {
+    NSUserDefaults.standardUserDefaults.setObject(
+        sessionJson.encodeToString(User.serializer(), user),
+        forKey = SESSION_KEY,
+    )
+}
+
+private fun loadCurrentUser(): User? {
+    val storedUser = NSUserDefaults.standardUserDefaults.stringForKey(SESSION_KEY) ?: return null
+
+    return runCatching {
+        sessionJson.decodeFromString(User.serializer(), storedUser)
+    }.getOrNull()
+}
+
+private fun clearCurrentUser() {
+    NSUserDefaults.standardUserDefaults.removeObjectForKey(SESSION_KEY)
+}
 
 actual suspend fun getAdventures(): List<Adventure> = withContext(Dispatchers.IO) {
     try {
@@ -272,7 +300,7 @@ actual suspend fun authenticateUser(email: String, password: String): User? = wi
             .decodeList<UserEntity>()
             .find { it.email == email }
 
-        user?.toUser()
+        user?.toUser()?.also { saveCurrentUser(it) }
     }.getOrNull()
 }
 
@@ -302,20 +330,18 @@ actual suspend fun registerUser(email: String, password: String, username: Strin
                 ),
             )
 
-        insertedUser.toUser()
+        insertedUser.toUser().also { saveCurrentUser(it) }
     }.getOrNull()
 }
 
 @Suppress("unused")
 actual suspend fun getCurrentUser(): User? = withContext(Dispatchers.IO) {
-    // This would typically retrieve from Supabase Auth session
-    // Placeholder implementation
-    return@withContext null
+    loadCurrentUser()
 }
 
 @Suppress("unused")
 actual suspend fun logoutUser(): Unit = withContext(Dispatchers.IO) {
-    // This would typically clear Supabase Auth session
+    clearCurrentUser()
 }
 
 actual suspend fun getUserProfile(userId: String): UserProfile? = withContext(Dispatchers.IO) {

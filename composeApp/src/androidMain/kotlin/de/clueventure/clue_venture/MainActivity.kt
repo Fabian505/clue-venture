@@ -15,6 +15,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
+        AndroidSessionStorage.context = applicationContext
+
         hideSystemBars()
 
         setContent {

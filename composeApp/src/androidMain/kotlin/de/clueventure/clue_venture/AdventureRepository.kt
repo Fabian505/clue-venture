@@ -1,8 +1,49 @@
 package de.clueventure.clue_venture
 
+import android.content.Context
 import io.github.jan.supabase.postgrest.from
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+
+internal object AndroidSessionStorage {
+    lateinit var context: Context
+}
+
+private const val SESSION_PREFS_NAME = "clue_venture_session"
+private const val CURRENT_USER_KEY = "current_user"
+
+private val sessionJson = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+}
+
+private fun saveCurrentUser(user: User) {
+    AndroidSessionStorage.context
+        .getSharedPreferences(SESSION_PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putString(CURRENT_USER_KEY, sessionJson.encodeToString(User.serializer(), user))
+        .apply()
+}
+
+private fun loadCurrentUser(): User? {
+    val storedUser = AndroidSessionStorage.context
+        .getSharedPreferences(SESSION_PREFS_NAME, Context.MODE_PRIVATE)
+        .getString(CURRENT_USER_KEY, null)
+        ?: return null
+
+    return runCatching {
+        sessionJson.decodeFromString(User.serializer(), storedUser)
+    }.getOrNull()
+}
+
+private fun clearCurrentUser() {
+    AndroidSessionStorage.context
+        .getSharedPreferences(SESSION_PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .remove(CURRENT_USER_KEY)
+        .apply()
+}
 
 actual suspend fun getAdventures(): List<Adventure> = withContext(Dispatchers.IO) {
     supabaseClient.from("adventures")
@@ -277,7 +318,7 @@ actual suspend fun authenticateUser(email: String, password: String): User? = wi
             .decodeList<UserEntity>()
             .find { it.email == email }
 
-        user?.toUser()
+        user?.toUser()?.also { saveCurrentUser(it) }
     } catch (e: Exception) {
         println("Error authenticating user: ${e.message}")
         null
@@ -309,7 +350,7 @@ actual suspend fun registerUser(email: String, password: String, username: Strin
         supabaseClient.from("user_profiles")
             .insert(profileInsert)
 
-        insertedUser.toUser()
+        insertedUser.toUser().also { saveCurrentUser(it) }
     } catch (e: Exception) {
         println("Error registering user: ${e.message}")
         throw e
@@ -317,13 +358,11 @@ actual suspend fun registerUser(email: String, password: String, username: Strin
 }
 
 actual suspend fun getCurrentUser(): User? = withContext(Dispatchers.IO) {
-    // This would typically retrieve from Supabase Auth session
-    // Placeholder implementation
-    return@withContext null
+    loadCurrentUser()
 }
 
 actual suspend fun logoutUser(): Unit = withContext(Dispatchers.IO) {
-    // This would typically clear Supabase Auth session
+    clearCurrentUser()
     Unit
 }
 

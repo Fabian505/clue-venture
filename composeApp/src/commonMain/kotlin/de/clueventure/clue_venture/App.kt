@@ -193,6 +193,7 @@ private data class ReachedAdventureTarget(
 fun App() {
     val appScope = rememberCoroutineScope()
     var currentUser by remember { mutableStateOf<User?>(null) }
+    var isSessionLoaded by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(BottomTab.Map) }
     var searchQuery by remember { mutableStateOf("") }
     var currentLocation by remember { mutableStateOf<GeoPoint?>(null) }
@@ -218,6 +219,11 @@ fun App() {
     var activeAdventureAttempt by remember { mutableStateOf<AdventureAttempt?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
+    LaunchedEffect(Unit) {
+        currentUser = getCurrentUser()
+        isSessionLoaded = true
+    }
+
     fun clearActiveAdventure() {
         routeTargets = emptyList()
         routedAdventureId = null
@@ -229,6 +235,20 @@ fun App() {
         activeAdventureAttempt = null
         isAdventureOverlayExpanded = true
         showEndAdventureConfirmation = false
+    }
+
+    fun resetAuthenticatedUiState() {
+        clearActiveAdventure()
+        selectedTab = BottomTab.Map
+        searchQuery = ""
+        showCreateAdventureDialog = false
+        editingAdventure = null
+        adventurePendingDeletion = null
+        isDeletingAdventure = false
+        deleteErrorMessage = null
+        adventurePendingStart = null
+        isStartingAdventure = false
+        startErrorMessage = null
     }
 
     LaunchedEffect(
@@ -276,7 +296,14 @@ fun App() {
     }
 
     MaterialTheme {
-        if (currentUser == null) {
+        if (!isSessionLoaded) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator()
+            }
+        } else if (currentUser == null) {
             // Show login/register screen if not authenticated
             AuthScreen(
                 onLoginSuccess = {
@@ -435,7 +462,31 @@ fun App() {
                             }
                         }
 
-                        BottomTab.Right -> Box(modifier = Modifier.fillMaxSize())
+                        BottomTab.Right -> Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Text(
+                                    text = currentUser?.email.orEmpty(),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                Button(
+                                    onClick = {
+                                        appScope.launch {
+                                            logoutUser()
+                                            resetAuthenticatedUiState()
+                                            currentUser = null
+                                        }
+                                    },
+                                ) {
+                                    Text("Abmelden")
+                                }
+                            }
+                        }
                     }
                 }
             }
