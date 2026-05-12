@@ -353,7 +353,6 @@ actual suspend fun startAdventureAttempt(adventureId: String, userId: String): A
                 AdventureAttemptInsertEntity(
                     adventureId = numericAdventureId,
                     userId = userId,
-                    startedAt = System.currentTimeMillis().toString(),
                     startedCheckpointIndex = 0,
                     currentCheckpointIndex = 0,
                     isCompleted = false,
@@ -389,7 +388,8 @@ actual suspend fun finishAdventureAttempt(attemptId: Long): Int = withContext(Di
             .find { it.id == attempt.adventureId } ?: return@withContext 0
 
         val now = System.currentTimeMillis()
-        val timeSpentSeconds = ((now - attempt.startedAt.toLong()) / 1000).toInt()
+        val startedAtMillis = attempt.startedAt.toLongOrNull() ?: now
+        val timeSpentSeconds = ((now - startedAtMillis) / 1000).toInt()
         val pointsEarned = calculateAdventurePoints(
             timeSpentSeconds,
             adventure.estimatedDurationMinutes ?: 60,
@@ -402,7 +402,6 @@ actual suspend fun finishAdventureAttempt(attemptId: Long): Int = withContext(Di
                     isCompleted = true,
                     timeSpentSeconds = timeSpentSeconds,
                     pointsEarned = pointsEarned,
-                    completedAt = now.toString(),
                 ),
             ) {
                 filter { eq("id", attemptId) }
@@ -500,5 +499,31 @@ actual suspend fun getCurrentAttemptForAdventure(adventureId: String, userId: St
     } catch (e: Exception) {
         println("Error fetching current attempt: ${e.message}")
         null
+    }
+}
+
+actual suspend fun submitAdventureFeedback(draft: AdventureFeedbackDraft): AdventureFeedback = withContext(Dispatchers.IO) {
+    try {
+        val numericAdventureId = draft.adventureId.toLongOrNull()
+            ?: throw IllegalArgumentException("Invalid adventure id: ${draft.adventureId}")
+
+        supabaseClient.from("adventure_feedback")
+            .insert(
+                AdventureFeedbackInsertEntity(
+                    attemptId = draft.attemptId,
+                    adventureId = numericAdventureId,
+                    userId = draft.userId,
+                    difficultyRating = draft.difficultyRating,
+                    overallRating = draft.overallRating,
+                    customFeedback = draft.customFeedback,
+                ),
+            ) {
+                select()
+            }
+            .decodeSingle<AdventureFeedbackEntity>()
+            .toAdventureFeedback()
+    } catch (e: Exception) {
+        println("Error submitting adventure feedback: ${e.message}")
+        throw e
     }
 }

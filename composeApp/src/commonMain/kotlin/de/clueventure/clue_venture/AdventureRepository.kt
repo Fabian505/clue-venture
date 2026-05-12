@@ -53,3 +53,5 @@ expect suspend fun updateUserProgress(attemptId: Long, checkpointIndex: Int, use
 expect suspend fun getUserProgress(attemptId: Long): UserProgress?
 
 expect suspend fun getCurrentAttemptForAdventure(adventureId: String, userId: String): AdventureAttempt?
+
+expect suspend fun submitAdventureFeedback(draft: AdventureFeedbackDraft): AdventureFeedback

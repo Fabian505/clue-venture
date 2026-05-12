@@ -165,7 +165,6 @@ data class UserProgressEntity(
 data class AdventureAttemptInsertEntity(
     @SerialName("adventure_id") val adventureId: Long,
     @SerialName("user_id") val userId: String,
-    @SerialName("started_at") val startedAt: String,
     @SerialName("started_checkpoint_index") val startedCheckpointIndex: Int = 0,
     @SerialName("current_checkpoint_index") val currentCheckpointIndex: Int = 0,
     @SerialName("is_completed") val isCompleted: Boolean = false,
@@ -176,7 +175,6 @@ data class AdventureAttemptFinishEntity(
     @SerialName("is_completed") val isCompleted: Boolean = true,
     @SerialName("time_spent_seconds") val timeSpentSeconds: Int,
     @SerialName("points_earned") val pointsEarned: Int,
-    @SerialName("completed_at") val completedAt: String,
 )
 
 @Serializable
@@ -203,6 +201,29 @@ data class UserProgressUpdateEntity(
     @SerialName("last_location_longitude") val lastLocationLongitude: Double?,
     @SerialName("last_location_update") val lastLocationUpdate: String?,
     @SerialName("updated_at") val updatedAt: String,
+)
+
+@Serializable
+data class AdventureFeedbackEntity(
+    val id: Long,
+    @SerialName("attempt_id") val attemptId: Long,
+    @SerialName("adventure_id") val adventureId: Long,
+    @SerialName("user_id") val userId: String,
+    @SerialName("difficulty_rating") val difficultyRating: Int,
+    @SerialName("overall_rating") val overallRating: Int,
+    @SerialName("custom_feedback") val customFeedback: String?,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("updated_at") val updatedAt: String,
+)
+
+@Serializable
+data class AdventureFeedbackInsertEntity(
+    @SerialName("attempt_id") val attemptId: Long,
+    @SerialName("adventure_id") val adventureId: Long,
+    @SerialName("user_id") val userId: String,
+    @SerialName("difficulty_rating") val difficultyRating: Int,
+    @SerialName("overall_rating") val overallRating: Int,
+    @SerialName("custom_feedback") val customFeedback: String?,
 )
 
 fun AdventureEntity.toAdventure(): Adventure = Adventure(

@@ -234,6 +234,27 @@ data class GeoPointState(
     val accuracy: Float? = null,
 )
 
+data class AdventureFeedback(
+    val id: Long,
+    val attemptId: Long,
+    val adventureId: String,
+    val userId: String,
+    val difficultyRating: Int,
+    val overallRating: Int,
+    val customFeedback: String?,
+    val createdAt: String,
+    val updatedAt: String,
+)
+
+data class AdventureFeedbackDraft(
+    val attemptId: Long,
+    val adventureId: String,
+    val userId: String,
+    val difficultyRating: Int,
+    val overallRating: Int,
+    val customFeedback: String?,
+)
+
 // ============================================================================
 // CONVERSION FUNCTIONS
 // ============================================================================
@@ -298,6 +319,19 @@ fun UserProgressEntity.toUserProgress(): UserProgress =
         } else null,
         lastLocationUpdate = lastLocationUpdate,
         reachedAt = reachedAt,
+        updatedAt = updatedAt,
+    )
+
+fun AdventureFeedbackEntity.toAdventureFeedback(): AdventureFeedback =
+    AdventureFeedback(
+        id = id,
+        attemptId = attemptId,
+        adventureId = adventureId.toString(),
+        userId = userId,
+        difficultyRating = difficultyRating,
+        overallRating = overallRating,
+        customFeedback = customFeedback,
+        createdAt = createdAt,
         updatedAt = updatedAt,
     )
 

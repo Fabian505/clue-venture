@@ -210,11 +210,12 @@ fun App() {
     var activeAdventureTargets by remember { mutableStateOf<List<AdventureProgressTarget>>(emptyList()) }
     var currentAdventureTargetIndex by remember { mutableStateOf(0) }
     var reachedAdventureTarget by remember { mutableStateOf<ReachedAdventureTarget?>(null) }
-    var completedAdventureTitle by remember { mutableStateOf<String?>(null) }
+    var isActiveAdventureComplete by remember { mutableStateOf(false) }
     var isAdventureOverlayExpanded by remember { mutableStateOf(true) }
     var showEndAdventureConfirmation by remember { mutableStateOf(false) }
     var adventureRefreshKey by remember { mutableStateOf(0) }
     var activeAdventure by remember { mutableStateOf<Adventure?>(null) }
+    var activeAdventureAttempt by remember { mutableStateOf<AdventureAttempt?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     fun clearActiveAdventure() {
@@ -223,6 +224,9 @@ fun App() {
         activeAdventureForOverlay = null
         activeAdventureTargets = emptyList()
         currentAdventureTargetIndex = 0
+        isActiveAdventureComplete = false
+        activeAdventure = null
+        activeAdventureAttempt = null
         isAdventureOverlayExpanded = true
         showEndAdventureConfirmation = false
     }
@@ -233,13 +237,13 @@ fun App() {
         activeAdventureTargets,
         currentAdventureTargetIndex,
         reachedAdventureTarget,
-        completedAdventureTitle,
+        isActiveAdventureComplete,
     ) {
         val location = currentLocation ?: return@LaunchedEffect
         val adventure = activeAdventureForOverlay ?: return@LaunchedEffect
         val target = activeAdventureTargets.getOrNull(currentAdventureTargetIndex) ?: return@LaunchedEffect
 
-        if (reachedAdventureTarget != null || completedAdventureTitle != null) {
+        if (reachedAdventureTarget != null || isActiveAdventureComplete) {
             return@LaunchedEffect
         }
 
@@ -250,8 +254,16 @@ fun App() {
         val reachedCount = currentAdventureTargetIndex + 1
         val totalCount = activeAdventureTargets.size
         if (currentAdventureTargetIndex == activeAdventureTargets.lastIndex) {
-            completedAdventureTitle = adventure.title
-            clearActiveAdventure()
+            routeTargets = emptyList()
+            routedAdventureId = null
+            activeAdventureForOverlay = null
+            activeAdventureTargets = emptyList()
+            currentAdventureTargetIndex = 0
+            reachedAdventureTarget = null
+            isAdventureOverlayExpanded = true
+            showEndAdventureConfirmation = false
+            activeAdventure = adventure
+            isActiveAdventureComplete = true
         } else {
             reachedAdventureTarget = ReachedAdventureTarget(
                 name = target.name,
@@ -307,6 +319,8 @@ fun App() {
                         adventure = adventure,
                         userId = currentUser?.id ?: return@let,
                         currentLocation = currentLocation,
+                        initialAttempt = activeAdventureAttempt,
+                        isAdventureComplete = isActiveAdventureComplete,
                         onAdventureComplete = { points ->
                             appScope.launch {
                                 snackbarHostState.showSnackbar(
@@ -315,9 +329,15 @@ fun App() {
                                 )
                             }
                             activeAdventure = null
+                            activeAdventureAttempt = null
+                            isActiveAdventureComplete = false
                             adventureRefreshKey += 1
                         },
-                        onClose = { activeAdventure = null },
+                        onClose = {
+                            activeAdventure = null
+                            activeAdventureAttempt = null
+                            isActiveAdventureComplete = false
+                        },
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(innerPadding),
@@ -363,7 +383,8 @@ fun App() {
                                 activeAdventureTargets = emptyList()
                                 currentAdventureTargetIndex = 0
                                 reachedAdventureTarget = null
-                                completedAdventureTitle = null
+                                isActiveAdventureComplete = false
+                                activeAdventureAttempt = null
                                 showEndAdventureConfirmation = false
                                 selectedTab = BottomTab.Map
                             },
@@ -543,6 +564,10 @@ fun App() {
                                         if (locations.isEmpty()) {
                                             throw IllegalStateException("Dieses Abenteuer hat noch keine Orte.")
                                         }
+                                        val user = currentUser
+                                            ?: throw IllegalStateException("Kein Benutzer angemeldet.")
+                                        val attempt = getCurrentAttemptForAdventure(adventure.id, user.id)
+                                            ?: startAdventureAttempt(adventure.id, user.id)
                                         val targets = listOf(
                                             AdventureProgressTarget(
                                                 name = "Startpunkt",
@@ -560,7 +585,8 @@ fun App() {
                                         activeAdventureTargets = targets
                                         currentAdventureTargetIndex = 0
                                         reachedAdventureTarget = null
-                                        completedAdventureTitle = null
+                                        isActiveAdventureComplete = false
+                                        activeAdventureAttempt = attempt
                                         isAdventureOverlayExpanded = true
                                         selectedTab = BottomTab.Map
                                     }.onSuccess {
@@ -643,18 +669,6 @@ fun App() {
                 )
             }
 
-            completedAdventureTitle?.let { title ->
-                AlertDialog(
-                    onDismissRequest = { completedAdventureTitle = null },
-                    title = { Text("Abenteuer abgeschlossen") },
-                    text = { Text("Du hast '$title' erfolgreich abgeschlossen.") },
-                    confirmButton = {
-                        Button(onClick = { completedAdventureTitle = null }) {
-                            Text("Fertig")
-                        }
-                    },
-                )
-            }
         }
     }
 }

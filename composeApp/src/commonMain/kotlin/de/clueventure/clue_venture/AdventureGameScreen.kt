@@ -1,7 +1,7 @@
 package de.clueventure.clue_venture
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,11 +11,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,6 +45,8 @@ fun AdventureGameScreen(
     adventure: Adventure,
     userId: String,
     currentLocation: GeoPoint?,
+    initialAttempt: AdventureAttempt? = null,
+    isAdventureComplete: Boolean = false,
     onAdventureComplete: (pointsEarned: Int) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
@@ -49,13 +55,22 @@ fun AdventureGameScreen(
     
     // State management
     var gameState by remember { mutableStateOf<GameState>(GameState.Loading) }
-    var currentAttempt by remember { mutableStateOf<AdventureAttempt?>(null) }
+    var currentAttempt by remember(initialAttempt?.id) { mutableStateOf(initialAttempt) }
     var currentCheckpointIndex by remember { mutableIntStateOf(0) }
     var currentLocationState by remember { mutableStateOf<GeoPointState?>(null) }
     var quizQuestions by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
     var distanceToWaypoint by remember { mutableStateOf(0.0) }
     var pointsEarned by remember { mutableIntStateOf(0) }
     var correctAnswerCount by remember { mutableIntStateOf(0) }
+    var hasFinishedAttempt by remember { mutableStateOf(false) }
+    var isFinishingAttempt by remember { mutableStateOf(false) }
+    var difficultyRating by remember { mutableIntStateOf(0) }
+    var overallRating by remember { mutableIntStateOf(0) }
+    var customFeedback by remember { mutableStateOf("") }
+    var isSubmittingFeedback by remember { mutableStateOf(false) }
+    var feedbackError by remember { mutableStateOf<String?>(null) }
+    var attemptError by remember { mutableStateOf<String?>(null) }
+    var finishError by remember { mutableStateOf<String?>(null) }
 
     val currentWaypoint = adventure.locations.getOrNull(currentCheckpointIndex)
     val isProximityAlertVisible = distanceToWaypoint in 0.0..50.0
@@ -65,18 +80,30 @@ fun AdventureGameScreen(
     LaunchedEffect(adventure.id) {
         coroutineScope.launch {
             try {
-                gameState = GameState.Loading
-                val attempt = getCurrentAttemptForAdventure(adventure.id, userId)
+                if (!isAdventureComplete) {
+                    gameState = GameState.Loading
+                }
+                val attempt = currentAttempt
+                    ?: initialAttempt
+                    ?: getCurrentAttemptForAdventure(adventure.id, userId)
                     ?: startAdventureAttempt(adventure.id, userId)
                 currentAttempt = attempt
+                attemptError = null
 
                 // Load quiz questions for the adventure
                 quizQuestions = getQuizQuestions(adventure.id)
 
-                gameState = if (currentWaypoint != null) GameState.Navigating else GameState.Complete
+                gameState = if (isAdventureComplete || currentWaypoint == null) {
+                    GameState.Complete
+                } else {
+                    GameState.Navigating
+                }
             } catch (e: Exception) {
                 println("Error initializing adventure: ${e.message}")
-                gameState = GameState.Error
+                attemptError = "Feedback kann aktuell nicht gespeichert werden, weil kein Abenteuer-Versuch gefunden wurde."
+                if (!isAdventureComplete) {
+                    gameState = GameState.Error
+                }
             }
         }
     }
@@ -133,6 +160,30 @@ fun AdventureGameScreen(
         }
     }
 
+    LaunchedEffect(isAdventureComplete) {
+        if (isAdventureComplete) {
+            currentCheckpointIndex = adventure.locations.lastIndex.coerceAtLeast(0)
+            gameState = GameState.Complete
+        }
+    }
+
+    LaunchedEffect(gameState, currentAttempt?.id) {
+        val attemptId = currentAttempt?.id
+        if (gameState == GameState.Complete && attemptId != null && !hasFinishedAttempt && !isFinishingAttempt) {
+            isFinishingAttempt = true
+            try {
+                pointsEarned = finishAdventureAttempt(attemptId)
+                hasFinishedAttempt = true
+                finishError = null
+            } catch (e: Exception) {
+                println("Error finishing adventure: ${e.message}")
+                finishError = "Das Abenteuer konnte nicht vollstaendig abgeschlossen werden. Feedback kann erst nach einem erfolgreichen Abschluss gespeichert werden."
+            } finally {
+                isFinishingAttempt = false
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             Row(
@@ -148,7 +199,15 @@ fun AdventureGameScreen(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Button(onClick = onClose) {
+                Button(
+                    onClick = {
+                        if (gameState == GameState.Complete && hasFinishedAttempt) {
+                            onAdventureComplete(pointsEarned)
+                        } else {
+                            onClose()
+                        }
+                    },
+                ) {
                     Text("Schließen")
                 }
             }
@@ -247,6 +306,7 @@ fun AdventureGameScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
                             .padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
@@ -260,23 +320,8 @@ fun AdventureGameScreen(
 
                         Spacer(modifier = Modifier.height(24.dp))
 
-                        // Finish adventure and calculate points
-                        LaunchedEffect(Unit) {
-                            coroutineScope.launch {
-                                currentAttempt?.id?.let {
-                                    try {
-                                        val points = finishAdventureAttempt(it)
-                                        pointsEarned = points
-                                        onAdventureComplete(points)
-                                    } catch (e: Exception) {
-                                        println("Error finishing adventure: ${e.message}")
-                                    }
-                                }
-                            }
-                        }
-
                         Text(
-                            text = "Punkte: $pointsEarned",
+                            text = if (isFinishingAttempt) "Punkte werden berechnet..." else "Punkte: $pointsEarned",
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -290,8 +335,100 @@ fun AdventureGameScreen(
 
                         Spacer(modifier = Modifier.height(24.dp))
 
-                        Button(onClick = onClose) {
-                            Text("Zurück zur Liste")
+                        Text(
+                            text = "Wie war dein Abenteuer?",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        StarRatingInput(
+                            label = "Schwierigkeit",
+                            rating = difficultyRating,
+                            onRatingChange = { difficultyRating = it },
+                            enabled = !isSubmittingFeedback,
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        StarRatingInput(
+                            label = "Gesamteindruck",
+                            rating = overallRating,
+                            onRatingChange = { overallRating = it },
+                            enabled = !isSubmittingFeedback,
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        OutlinedTextField(
+                            value = customFeedback,
+                            onValueChange = { customFeedback = it },
+                            label = { Text("Dein Feedback") },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 3,
+                            maxLines = 5,
+                            enabled = !isSubmittingFeedback,
+                        )
+
+                        feedbackError?.let {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = it,
+                                color = MaterialTheme.colorScheme.error,
+                                fontSize = 14.sp,
+                            )
+                        }
+
+                        FeedbackSubmitHint(
+                            hasAttempt = currentAttempt != null,
+                            hasFinishedAttempt = hasFinishedAttempt,
+                            difficultyRating = difficultyRating,
+                            overallRating = overallRating,
+                            attemptError = attemptError,
+                            finishError = finishError,
+                        )
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        Button(
+                            onClick = {
+                                val attemptId = currentAttempt?.id ?: return@Button
+                                coroutineScope.launch {
+                                    isSubmittingFeedback = true
+                                    feedbackError = null
+                                    try {
+                                        submitAdventureFeedback(
+                                            AdventureFeedbackDraft(
+                                                attemptId = attemptId,
+                                                adventureId = adventure.id,
+                                                userId = userId,
+                                                difficultyRating = difficultyRating,
+                                                overallRating = overallRating,
+                                                customFeedback = customFeedback.trim().ifBlank { null },
+                                            ),
+                                        )
+                                        onAdventureComplete(pointsEarned)
+                                    } catch (e: Exception) {
+                                        feedbackError = "Feedback konnte nicht gespeichert werden. Bitte versuche es erneut."
+                                        println("Error submitting feedback: ${e.message}")
+                                    } finally {
+                                        isSubmittingFeedback = false
+                                    }
+                                }
+                            },
+                            enabled = hasFinishedAttempt && !isFinishingAttempt && !isSubmittingFeedback &&
+                                currentAttempt != null && difficultyRating in 1..5 && overallRating in 1..5,
+                        ) {
+                            Text(if (isSubmittingFeedback) "Wird gesendet..." else "Feedback senden")
+                        }
+
+                        TextButton(
+                            onClick = { onAdventureComplete(pointsEarned) },
+                            enabled = !isSubmittingFeedback,
+                        ) {
+                            Text("Ohne Feedback zurück zur Liste")
                         }
                     }
                 }
@@ -308,6 +445,70 @@ fun AdventureGameScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeedbackSubmitHint(
+    hasAttempt: Boolean,
+    hasFinishedAttempt: Boolean,
+    difficultyRating: Int,
+    overallRating: Int,
+    attemptError: String?,
+    finishError: String?,
+) {
+    val message = when {
+        attemptError != null -> attemptError
+        finishError != null -> finishError
+        !hasAttempt -> "Feedback kann noch nicht gespeichert werden, weil der Abenteuer-Versuch geladen wird."
+        !hasFinishedAttempt -> "Feedback kann gespeichert werden, sobald der Abschluss verarbeitet wurde."
+        difficultyRating !in 1..5 || overallRating !in 1..5 -> "Bitte bewerte Schwierigkeit und Gesamteindruck mit Sternen."
+        else -> null
+    }
+
+    message?.let {
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = it,
+            color = if (attemptError != null || finishError != null) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            fontSize = 14.sp,
+        )
+    }
+}
+
+@Composable
+private fun StarRatingInput(
+    label: String,
+    rating: Int,
+    onRatingChange: (Int) -> Unit,
+    enabled: Boolean,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = label,
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.Center) {
+            (1..5).forEach { value ->
+                Text(
+                    text = if (value <= rating) "★" else "☆",
+                    fontSize = 32.sp,
+                    color = if (value <= rating) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier
+                        .padding(horizontal = 4.dp)
+                        .clickable(enabled = enabled) { onRatingChange(value) },
+                )
             }
         }
     }

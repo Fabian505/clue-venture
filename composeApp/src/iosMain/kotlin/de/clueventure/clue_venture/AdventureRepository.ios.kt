@@ -341,7 +341,6 @@ actual suspend fun startAdventureAttempt(adventureId: String, userId: String): A
                 AdventureAttemptInsertEntity(
                     adventureId = numericAdventureId,
                     userId = userId,
-                    startedAt = Clock.System.now().toEpochMilliseconds().toString(),
                     startedCheckpointIndex = 0,
                     currentCheckpointIndex = 0,
                     isCompleted = false,
@@ -389,7 +388,6 @@ actual suspend fun finishAdventureAttempt(attemptId: Long): Int = withContext(Di
                     isCompleted = true,
                     timeSpentSeconds = timeSpentSeconds,
                     pointsEarned = pointsEarned,
-                    completedAt = now.toString(),
                 ),
             ) {
                 filter { eq("id", attemptId) }
@@ -479,3 +477,26 @@ actual suspend fun getCurrentAttemptForAdventure(adventureId: String, userId: St
     }.getOrNull()
 }
 
+actual suspend fun submitAdventureFeedback(draft: AdventureFeedbackDraft): AdventureFeedback = withContext(Dispatchers.IO) {
+    return@withContext runCatching {
+        val numericAdventureId = draft.adventureId.toLongOrNull()
+            ?: throw IllegalArgumentException("Invalid adventure id: ${draft.adventureId}")
+
+        supabaseClient.from("adventure_feedback")
+            .insert(
+                AdventureFeedbackInsertEntity(
+                    attemptId = draft.attemptId,
+                    adventureId = numericAdventureId,
+                    userId = draft.userId,
+                    difficultyRating = draft.difficultyRating,
+                    overallRating = draft.overallRating,
+                    customFeedback = draft.customFeedback,
+                ),
+            )
+            {
+                select()
+            }
+            .decodeSingle<AdventureFeedbackEntity>()
+            .toAdventureFeedback()
+    }.getOrThrow()
+}

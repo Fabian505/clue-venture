@@ -172,28 +172,27 @@ CREATE POLICY "quiz_questions_readable" ON public.quiz_questions
 CREATE POLICY "quiz_answers_readable" ON public.quiz_answers
     FOR SELECT USING (true);
 
--- Policy: Users can only see their own attempts & progress
-CREATE POLICY "attempts_own_only" ON public.adventure_attempts
-    FOR ALL USING (user_id = auth.uid());
+-- Policy: The current app manages custom users client-side instead of Supabase Auth.
+-- These tables must be accessible to the anon client; ownership is enforced by app logic.
+DROP POLICY IF EXISTS "attempts_own_only" ON public.adventure_attempts;
+DROP POLICY IF EXISTS "adventure_attempts_accessible" ON public.adventure_attempts;
+CREATE POLICY "adventure_attempts_accessible" ON public.adventure_attempts
+    FOR ALL USING (true) WITH CHECK (true);
 
-CREATE POLICY "user_answers_own_only" ON public.user_answers
-    FOR ALL USING (
-        EXISTS (
-            SELECT 1 FROM public.adventure_attempts
-            WHERE id = attempt_id AND user_id = auth.uid()
-        )
-    );
+DROP POLICY IF EXISTS "user_answers_own_only" ON public.user_answers;
+DROP POLICY IF EXISTS "user_answers_accessible" ON public.user_answers;
+CREATE POLICY "user_answers_accessible" ON public.user_answers
+    FOR ALL USING (true) WITH CHECK (true);
 
-CREATE POLICY "progress_own_only" ON public.user_progress
-    FOR ALL USING (
-        EXISTS (
-            SELECT 1 FROM public.adventure_attempts
-            WHERE id = attempt_id AND user_id = auth.uid()
-        )
-    );
+DROP POLICY IF EXISTS "progress_own_only" ON public.user_progress;
+DROP POLICY IF EXISTS "user_progress_accessible" ON public.user_progress;
+CREATE POLICY "user_progress_accessible" ON public.user_progress
+    FOR ALL USING (true) WITH CHECK (true);
 
-CREATE POLICY "profiles_own_only" ON public.user_profiles
-    FOR ALL USING (user_id = auth.uid());
+DROP POLICY IF EXISTS "profiles_own_only" ON public.user_profiles;
+DROP POLICY IF EXISTS "user_profiles_accessible" ON public.user_profiles;
+CREATE POLICY "user_profiles_accessible" ON public.user_profiles
+    FOR ALL USING (true) WITH CHECK (true);
 
 -- ============================================================================
 -- ADDITIONAL: CASCADE delete for data consistency
