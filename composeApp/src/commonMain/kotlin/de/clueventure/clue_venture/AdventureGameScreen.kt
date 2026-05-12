@@ -58,14 +58,21 @@ fun AdventureGameScreen(
     modifier: Modifier = Modifier,
 ) {
     val coroutineScope = rememberCoroutineScope()
-    
+    val adventureLocations = remember(adventure.id, adventure.locations) {
+        adventure.locations.sortedBy { it.orderIndex }
+    }
+
     // State management
     var gameState by remember { mutableStateOf<GameState>(GameState.Loading) }
     var currentAttempt by remember(initialAttempt?.id) { mutableStateOf(initialAttempt) }
     var currentCheckpointIndex by remember { mutableIntStateOf(0) }
-    var currentLocationState by remember { mutableStateOf<GeoPointState?>(null) }
+    var currentLocationState by remember {
+        mutableStateOf<GeoPointState?>(currentLocation?.let {
+            GeoPointState(point = it, timestamp = "", accuracy = null)
+        })
+    }
     var quizQuestions by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
-    var distanceToWaypoint by remember { mutableStateOf(0.0) }
+    var distanceToWaypoint by remember { mutableStateOf(Double.POSITIVE_INFINITY) }
     var currentRouteDistanceMeters by remember { mutableStateOf<Double?>(null) }
     var unlockedQuestionSlots by remember { mutableIntStateOf(0) }
     var pendingUnlockCheckpointIndex by remember { mutableStateOf<Int?>(null) }
@@ -85,9 +92,9 @@ fun AdventureGameScreen(
     var attemptError by remember { mutableStateOf<String?>(null) }
     var finishError by remember { mutableStateOf<String?>(null) }
 
-    val currentWaypoint = adventure.locations.getOrNull(currentCheckpointIndex)
-    val isProximityAlertVisible = distanceToWaypoint in 0.0..50.0
-    val isWaypointReached = distanceToWaypoint < 5.0
+    val currentWaypoint = adventureLocations.getOrNull(currentCheckpointIndex)
+    val isProximityAlertVisible = currentLocationState != null && currentWaypoint != null && distanceToWaypoint < 30.0
+    val isWaypointReached = currentLocationState != null && currentWaypoint != null && distanceToWaypoint < 5.0
     val unansweredQuestions = quizQuestions.filterNot { it.id in answeredQuestionIds }
     val availableQuestionCount = max(
         0,
@@ -112,10 +119,10 @@ fun AdventureGameScreen(
                 // Load quiz questions for the adventure
                 quizQuestions = getQuizQuestions(adventure.id)
 
-                gameState = if (isAdventureComplete || currentWaypoint == null) {
-                    GameState.Complete
-                } else {
-                    GameState.Navigating
+                gameState = when {
+                    isAdventureComplete -> GameState.Complete
+                    adventureLocations.isEmpty() -> GameState.Error
+                    else -> GameState.Navigating
                 }
             } catch (e: Exception) {
                 println("Error initializing adventure: ${e.message}")
@@ -125,6 +132,44 @@ fun AdventureGameScreen(
                 }
             }
         }
+    }
+
+    // Location tracking
+    LaunchedEffect(Unit) {
+        coroutineScope.launch {
+            try {
+                val locationService = getLocationService()
+                locationService.startLocationTracking(interval = 10000) { location ->
+                    currentLocationState = location
+
+                    // Update progress in database
+                    coroutineScope.launch {
+                        currentAttempt?.id?.let {
+                            try {
+                                updateUserProgress(it, currentCheckpointIndex, location)
+                            } catch (e: Exception) {
+                                println("Error updating progress: ${e.message}")
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                println("Error starting location tracking: ${e.message}")
+            }
+        }
+    }
+
+    LaunchedEffect(currentLocationState?.point, currentWaypoint?.point) {
+        val location = currentLocationState?.point ?: run {
+            distanceToWaypoint = Double.POSITIVE_INFINITY
+            return@LaunchedEffect
+        }
+        val waypointPoint = currentWaypoint?.point ?: run {
+            distanceToWaypoint = Double.POSITIVE_INFINITY
+            return@LaunchedEffect
+        }
+
+        distanceToWaypoint = location.distanceTo(waypointPoint)
     }
 
     // Handle waypoint reached
@@ -167,7 +212,7 @@ fun AdventureGameScreen(
 
     LaunchedEffect(isAdventureComplete) {
         if (isAdventureComplete) {
-            currentCheckpointIndex = adventure.locations.lastIndex.coerceAtLeast(0)
+            currentCheckpointIndex = adventureLocations.lastIndex.coerceAtLeast(0)
             gameState = GameState.Complete
         }
     }
@@ -350,8 +395,7 @@ fun AdventureGameScreen(
                             currentLocation = currentLocationState?.point,
                             targetLocation = currentWaypoint?.point ?: GeoPoint(0.0, 0.0),
                             isVisible = true,
-                            distanceMeters = distanceToWaypoint,
-                            modifier = Modifier
+                                modifier = Modifier
                                 .fillMaxWidth()
                                 .align(Alignment.Center),
                         )
