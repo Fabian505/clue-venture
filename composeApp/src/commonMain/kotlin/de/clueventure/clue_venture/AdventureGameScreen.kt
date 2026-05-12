@@ -10,9 +10,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -30,11 +34,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.max
 
 /**
  * Main Adventure Game Screen - orchestrates the complete adventure experience
@@ -60,6 +66,13 @@ fun AdventureGameScreen(
     var currentLocationState by remember { mutableStateOf<GeoPointState?>(null) }
     var quizQuestions by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
     var distanceToWaypoint by remember { mutableStateOf(0.0) }
+    var currentRouteDistanceMeters by remember { mutableStateOf<Double?>(null) }
+    var unlockedQuestionSlots by remember { mutableIntStateOf(0) }
+    var pendingUnlockCheckpointIndex by remember { mutableStateOf<Int?>(null) }
+    var showQuizSheet by remember { mutableStateOf(false) }
+    var activeQuizQuestions by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
+    var lastReachedCheckpointIndex by remember { mutableIntStateOf(-1) }
+    var answeredQuestionIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var pointsEarned by remember { mutableIntStateOf(0) }
     var correctAnswerCount by remember { mutableIntStateOf(0) }
     var hasFinishedAttempt by remember { mutableStateOf(false) }
@@ -75,6 +88,12 @@ fun AdventureGameScreen(
     val currentWaypoint = adventure.locations.getOrNull(currentCheckpointIndex)
     val isProximityAlertVisible = distanceToWaypoint in 0.0..50.0
     val isWaypointReached = distanceToWaypoint < 5.0
+    val unansweredQuestions = quizQuestions.filterNot { it.id in answeredQuestionIds }
+    val availableQuestionCount = max(
+        0,
+        minOf(unlockedQuestionSlots, quizQuestions.size) - answeredQuestionIds.size,
+    )
+    val availableQuestions = unansweredQuestions.take(availableQuestionCount)
 
     // Initialize adventure attempt
     LaunchedEffect(adventure.id) {
@@ -108,56 +127,42 @@ fun AdventureGameScreen(
         }
     }
 
-    // Location tracking
-    LaunchedEffect(Unit) {
-        coroutineScope.launch {
-            try {
-                val locationService = getLocationService()
-                locationService.startLocationTracking(interval = 10000) { location ->
-                    currentLocationState = location
-                    currentWaypoint?.point?.let { waypointPoint ->
-                        distanceToWaypoint = location.point.distanceTo(waypointPoint)
-                    }
-
-                    // Update progress in database
-                    coroutineScope.launch {
-                        currentAttempt?.id?.let {
-                            try {
-                                updateUserProgress(it, currentCheckpointIndex, location)
-                            } catch (e: Exception) {
-                                println("Error updating progress: ${e.message}")
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                println("Error starting location tracking: ${e.message}")
-            }
+    // Handle waypoint reached
+    LaunchedEffect(isWaypointReached) {
+        if (
+            isWaypointReached &&
+            gameState == GameState.Navigating &&
+            currentWaypoint != null &&
+            currentCheckpointIndex != lastReachedCheckpointIndex
+        ) {
+            lastReachedCheckpointIndex = currentCheckpointIndex
+            moveToNextCheckpoint(
+                adventure,
+                currentCheckpointIndex,
+                { nextIndex ->
+                    currentCheckpointIndex = nextIndex
+                },
+                { gameState = it },
+                onCheckpointAdvanced = { nextIndex ->
+                    pendingUnlockCheckpointIndex = nextIndex
+                    currentRouteDistanceMeters = null
+                },
+            )
         }
     }
 
-    // Handle waypoint reached
-    LaunchedEffect(isWaypointReached) {
-        if (isWaypointReached && gameState == GameState.Navigating && currentWaypoint != null) {
-            println("Waypoint reached: ${currentWaypoint.name}")
-            gameState = GameState.ShowingProximityAlert
-
-            // Delay before showing quiz
-            delay(2000)
-
-            // Get quiz questions for this adventure
-            if (quizQuestions.isNotEmpty()) {
-                gameState = GameState.ShowingQuiz
-            } else {
-                // No quiz, move to next waypoint
-                moveToNextCheckpoint(
-                    adventure,
-                    currentCheckpointIndex,
-                    { nextIndex -> currentCheckpointIndex = nextIndex },
-                    { gameState = it },
-                )
-            }
+    LaunchedEffect(pendingUnlockCheckpointIndex, currentCheckpointIndex, currentRouteDistanceMeters) {
+        val pendingIndex = pendingUnlockCheckpointIndex ?: return@LaunchedEffect
+        if (pendingIndex != currentCheckpointIndex) {
+            return@LaunchedEffect
         }
+
+        val routeDistance = currentRouteDistanceMeters ?: return@LaunchedEffect
+        val unlockedQuestions = unlockedQuestionsForRouteDistance(routeDistance)
+        if (unlockedQuestions > 0) {
+            unlockedQuestionSlots += unlockedQuestions
+        }
+        pendingUnlockCheckpointIndex = null
     }
 
     LaunchedEffect(isAdventureComplete) {
@@ -234,71 +239,225 @@ fun AdventureGameScreen(
                 }
 
                 GameState.Navigating -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        currentWaypoint?.let {
-                            NavigationIndicator(
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        PlatformMap(
+                            modifier = Modifier.fillMaxSize(),
+                            routeTargets = currentWaypoint?.point?.let { listOf(it) }.orEmpty(),
+                            onCurrentLocationChanged = { location ->
+                                val updatedLocation = location?.let {
+                                    GeoPointState(
+                                        point = it,
+                                        timestamp = System.currentTimeMillis().toString(),
+                                    )
+                                }
+                                currentLocationState = updatedLocation
+
+                                location?.let { currentLocation ->
+                                    currentWaypoint?.point?.let { waypointPoint ->
+                                        distanceToWaypoint = currentLocation.distanceTo(waypointPoint)
+                                    }
+                                }
+
+                                currentAttempt?.id?.let { attemptId ->
+                                    coroutineScope.launch {
+                                        try {
+                                            updateUserProgress(attemptId, currentCheckpointIndex, updatedLocation)
+                                        } catch (e: Exception) {
+                                            println("Error updating progress: ${e.message}")
+                                        }
+                                    }
+                                }
+                            },
+                            questionCount = availableQuestionCount,
+                            onQuestionsClicked = {
+                                if (availableQuestions.isNotEmpty()) {
+                                    activeQuizQuestions = availableQuestions
+                                    showQuizSheet = true
+                                    gameState = GameState.ShowingQuiz
+                                }
+                            },
+                            onRouteDistanceChanged = { routeDistance ->
+                                currentRouteDistanceMeters = routeDistance
+                            },
+                        )
+
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            currentWaypoint?.let {
+                                NavigationIndicator(
+                                    currentLocation = currentLocationState?.point,
+                                    targetLocation = it.point,
+                                    targetName = it.name,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+
+                            Text(
+                                text = "Fortschritt: ${currentCheckpointIndex + 1}/${adventure.locations.size}",
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+
+                            ProximityAlertPopup(
                                 currentLocation = currentLocationState?.point,
-                                targetLocation = it.point,
-                                targetName = it.name,
+                                targetLocation = currentWaypoint?.point ?: GeoPoint(0.0, 0.0),
+                                isVisible = isProximityAlertVisible,
+                                distanceMeters = distanceToWaypoint,
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
-
-                        ProximityAlertPopup(
-                            currentLocation = currentLocationState?.point,
-                            targetLocation = currentWaypoint?.point ?: GeoPoint(0.0, 0.0),
-                            isVisible = isProximityAlertVisible,
-                            distanceMeters = distanceToWaypoint,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.CenterHorizontally),
-                        )
-
-                        Text(
-                            text = "Fortschritt: ${currentCheckpointIndex + 1}/${adventure.locations.size}",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
                     }
                 }
 
                 GameState.ShowingProximityAlert -> {
-                    ProximityAlertPopup(
-                        currentLocation = currentLocationState?.point,
-                        targetLocation = currentWaypoint?.point ?: GeoPoint(0.0, 0.0),
-                        isVisible = true,
-                        distanceMeters = distanceToWaypoint,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        PlatformMap(
+                            modifier = Modifier.fillMaxSize(),
+                            routeTargets = currentWaypoint?.point?.let { listOf(it) }.orEmpty(),
+                            onCurrentLocationChanged = { location ->
+                                val updatedLocation = location?.let {
+                                    GeoPointState(
+                                        point = it,
+                                        timestamp = System.currentTimeMillis().toString(),
+                                    )
+                                }
+                                currentLocationState = updatedLocation
+
+                                location?.let { currentLocation ->
+                                    currentWaypoint?.point?.let { waypointPoint ->
+                                        distanceToWaypoint = currentLocation.distanceTo(waypointPoint)
+                                    }
+                                }
+                            },
+                            questionCount = availableQuestionCount,
+                            onQuestionsClicked = {
+                                if (availableQuestions.isNotEmpty()) {
+                                    activeQuizQuestions = availableQuestions
+                                    showQuizSheet = true
+                                    gameState = GameState.ShowingQuiz
+                                }
+                            },
+                            onRouteDistanceChanged = { routeDistance ->
+                                currentRouteDistanceMeters = routeDistance
+                            },
+                        )
+
+                        ProximityAlertPopup(
+                            currentLocation = currentLocationState?.point,
+                            targetLocation = currentWaypoint?.point ?: GeoPoint(0.0, 0.0),
+                            isVisible = true,
+                            distanceMeters = distanceToWaypoint,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.Center),
+                        )
+                    }
                 }
 
                 GameState.ShowingQuiz -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp),
-                    ) {
-                        QuizScreen(
-                            questions = quizQuestions,
-                            onQuizCompleted = { correct ->
-                                correctAnswerCount = correct
-                                coroutineScope.launch {
-                                    moveToNextCheckpoint(
-                                        adventure,
-                                        currentCheckpointIndex,
-                                        { nextIndex -> currentCheckpointIndex = nextIndex },
-                                        { newState -> gameState = newState },
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        PlatformMap(
+                            modifier = Modifier.fillMaxSize(),
+                            routeTargets = currentWaypoint?.point?.let { listOf(it) }.orEmpty(),
+                            onCurrentLocationChanged = { location ->
+                                val updatedLocation = location?.let {
+                                    GeoPointState(
+                                        point = it,
+                                        timestamp = System.currentTimeMillis().toString(),
                                     )
                                 }
+                                currentLocationState = updatedLocation
+
+                                location?.let { currentLocation ->
+                                    currentWaypoint?.point?.let { waypointPoint ->
+                                        distanceToWaypoint = currentLocation.distanceTo(waypointPoint)
+                                    }
+                                }
                             },
-                            onClose = onClose,
-                            modifier = Modifier.fillMaxWidth(),
+                            questionCount = availableQuestionCount,
+                            onQuestionsClicked = {
+                                if (availableQuestions.isNotEmpty()) {
+                                    activeQuizQuestions = availableQuestions
+                                    showQuizSheet = true
+                                }
+                            },
+                            onRouteDistanceChanged = { routeDistance ->
+                                currentRouteDistanceMeters = routeDistance
+                            },
                         )
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.4f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp)
+                                    .heightIn(max = 720.dp)
+                                    .clip(RoundedCornerShape(24.dp)),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surface,
+                                ),
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            text = "Verfuegbare Fragen (${activeQuizQuestions.size})",
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                        TextButton(
+                                            onClick = {
+                                                showQuizSheet = false
+                                                gameState = GameState.Navigating
+                                            },
+                                        ) {
+                                            Text("Schliessen")
+                                        }
+                                    }
+
+                                    QuizScreen(
+                                        questions = activeQuizQuestions,
+                                        attemptId = currentAttempt?.id,
+                                        onAnswerEvaluated = { event ->
+                                            answeredQuestionIds = answeredQuestionIds + event.questionId
+                                            if (event.isCorrect) {
+                                                correctAnswerCount += 1
+                                            }
+                                            coroutineScope.launch {
+                                                recordQuizAnswerEvaluation(event)
+                                            }
+                                        },
+                                        onQuizCompleted = {
+                                            showQuizSheet = false
+                                            activeQuizQuestions = emptyList()
+                                            gameState = GameState.Navigating
+                                        },
+                                        onClose = {
+                                            showQuizSheet = false
+                                            activeQuizQuestions = emptyList()
+                                            gameState = GameState.Navigating
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 

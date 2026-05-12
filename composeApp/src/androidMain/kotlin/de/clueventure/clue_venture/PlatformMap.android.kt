@@ -15,6 +15,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -89,6 +90,9 @@ actual fun PlatformMap(
     enablePointSelection: Boolean,
     selectedPoint: GeoPoint?,
     onMapPointSelected: (GeoPoint) -> Unit,
+    questionCount: Int,
+    onQuestionsClicked: () -> Unit,
+    onRouteDistanceChanged: (Double?) -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -170,10 +174,13 @@ actual fun PlatformMap(
 
         if (currentLocation == null || routeTargets.isEmpty()) {
             routePoints = emptyList()
+            onRouteDistanceChanged(null)
             return@LaunchedEffect
         }
 
-        routePoints = fetchRoutePoints(listOf(currentLocation) + routeTargets)
+        val fetchedRoutePoints = fetchRoutePoints(listOf(currentLocation) + routeTargets)
+        routePoints = fetchedRoutePoints
+        onRouteDistanceChanged(fetchedRoutePoints.routeDistanceMeters())
     }
 
     DisposableEffect(hasLocationPermission, mapLibreMap) {
@@ -325,34 +332,76 @@ actual fun PlatformMap(
         )
 
         val canRecenter = hasLocationPermission && latestLocation != null && mapLibreMap != null
-        Surface(
+        Row(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp),
-            shape = CircleShape,
-            tonalElevation = 4.dp,
-            shadowElevation = 6.dp,
         ) {
-            IconButton(
-                onClick = {
-                    val location = latestLocation
-                    val map = mapLibreMap
-                    if (location != null && map != null) {
-                        moveCameraToLocation(map, location)
-                    }
-                },
-                enabled = canRecenter,
-                modifier = Modifier.size(48.dp),
+            Surface(
+                shape = CircleShape,
+                tonalElevation = 4.dp,
+                shadowElevation = 6.dp,
             ) {
-                Icon(
-                    painter = painterResource(android.R.drawable.ic_menu_mylocation),
-                    contentDescription = "Auf aktuellen Standort zentrieren",
-                    tint = if (canRecenter) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
+                IconButton(
+                    onClick = onQuestionsClicked,
+                    enabled = questionCount > 0,
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            painter = painterResource(android.R.drawable.ic_menu_help),
+                            contentDescription = "Verfuegbare Fragen: $questionCount",
+                            tint = if (questionCount > 0) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                        if (questionCount > 0) {
+                            Surface(
+                                modifier = Modifier.align(Alignment.TopEnd),
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primary,
+                            ) {
+                                Text(
+                                    text = questionCount.toString(),
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Box(modifier = Modifier.size(12.dp))
+
+            Surface(
+                shape = CircleShape,
+                tonalElevation = 4.dp,
+                shadowElevation = 6.dp,
+            ) {
+                IconButton(
+                    onClick = {
+                        val location = latestLocation
+                        val map = mapLibreMap
+                        if (location != null && map != null) {
+                            moveCameraToLocation(map, location)
+                        }
                     },
-                )
+                    enabled = canRecenter,
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(
+                        painter = painterResource(android.R.drawable.ic_menu_mylocation),
+                        contentDescription = "Auf aktuellen Standort zentrieren",
+                        tint = if (canRecenter) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
             }
         }
 
@@ -418,6 +467,14 @@ private fun Location.toGeoPoint(): GeoPoint {
         latitude = latitude,
         longitude = longitude,
     )
+}
+
+private fun List<GeoPoint>.routeDistanceMeters(): Double? {
+    if (size < 2) {
+        return null
+    }
+
+    return zipWithNext { current, next -> current.distanceTo(next) }.sum()
 }
 
 private fun ensureLocationLayer(style: Style) {

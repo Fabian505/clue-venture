@@ -26,6 +26,8 @@ expect suspend fun getQuizAnswers(questionId: Long): List<QuizAnswer>
 
 expect suspend fun submitQuizAnswer(attemptId: Long, questionId: Long, answerId: Long): Boolean
 
+expect suspend fun recordQuizAnswerEvaluation(event: QuizAnswerEvaluationEvent)
+
 // ============================================================================
 // AUTHENTICATION REPOSITORY FUNCTIONS
 // ============================================================================

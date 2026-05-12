@@ -3,6 +3,7 @@ package de.clueventure.clue_venture
 import kotlin.math.asin
 import kotlin.math.cos
 import kotlin.math.PI
+import kotlin.math.floor
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -160,6 +161,13 @@ data class QuizAnswer(
     val answerText: String,
     val isCorrect: Boolean,
     val answerOrder: Int,
+)
+
+data class QuizAnswerEvaluationEvent(
+    val attemptId: Long?,
+    val questionId: Long,
+    val answerId: Long,
+    val isCorrect: Boolean,
 )
 
 // ============================================================================
@@ -360,4 +368,12 @@ fun calculateAdventurePoints(
     val basePoints = (1000 * timeMultiplier).toInt()
     val quizBonus = correctAnswerCount * 100
     return maxOf(basePoints + quizBonus, 100)
+}
+
+fun unlockedQuestionsForRouteDistance(routeDistanceMeters: Double?): Int {
+    if (routeDistanceMeters == null || routeDistanceMeters <= 0.0) {
+        return 0
+    }
+
+    return floor(routeDistanceMeters / 200.0).toInt().coerceAtLeast(0)
 }

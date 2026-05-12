@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.max
 
 /**
  * Quiz screen showing questions with ABCD answers between checkpoints
@@ -43,6 +44,8 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun QuizScreen(
     questions: List<QuizQuestion>,
+    attemptId: Long? = null,
+    onAnswerEvaluated: (QuizAnswerEvaluationEvent) -> Unit = {},
     onQuizCompleted: (correctAnswerCount: Int) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
@@ -58,6 +61,7 @@ fun QuizScreen(
 
     val currentQuestion = questions.getOrNull(currentQuestionIndex)
     val isLastQuestion = currentQuestionIndex >= questions.size - 1
+    val displayQuestionCount = max(questions.size, 1)
 
     Box(
         modifier = modifier
@@ -90,7 +94,7 @@ fun QuizScreen(
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth((currentQuestionIndex + 1) / questions.size.toFloat())
+                        .fillMaxWidth((currentQuestionIndex + 1) / displayQuestionCount.toFloat())
                         .height(4.dp)
                         .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)),
                 )
@@ -124,6 +128,7 @@ fun QuizScreen(
                         val answers = question.answers.sortedBy { it.answerOrder }
                         answers.forEach { answer ->
                             AnswerButton(
+                                label = answerOrderLabel(answer.answerOrder),
                                 text = answer.answerText,
                                 isSelected = selectedAnswers[question.id] == answer.id,
                                 isCorrect = answer.isCorrect,
@@ -200,10 +205,21 @@ fun QuizScreen(
             if (!showResults) {
                 Button(
                     onClick = {
-                        val isCorrect = questions[currentQuestionIndex].answers
-                            .find { it.id == selectedAnswers[questions[currentQuestionIndex].id] }
-                            ?.isCorrect ?: false
+                        val question = questions[currentQuestionIndex]
+                        val selectedAnswer = question.answers
+                            .find { it.id == selectedAnswers[question.id] }
+                        val isCorrect = selectedAnswer?.isCorrect ?: false
                         if (isCorrect) correctAnswerCount++
+                        selectedAnswer?.let {
+                            onAnswerEvaluated(
+                                QuizAnswerEvaluationEvent(
+                                    attemptId = attemptId,
+                                    questionId = question.id,
+                                    answerId = it.id,
+                                    isCorrect = isCorrect,
+                                ),
+                            )
+                        }
                         showResults = true
                     },
                     modifier = Modifier
@@ -255,6 +271,7 @@ fun QuizScreen(
 
 @Composable
 private fun AnswerButton(
+    label: String,
     text: String,
     isSelected: Boolean,
     isCorrect: Boolean,
@@ -305,11 +322,7 @@ private fun AnswerButton(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = when {
-                        showResult && isCorrect -> "✓"
-                        showResult && isSelected && !isCorrect -> "✗"
-                        else -> ""
-                    },
+                    text = label,
                     color = Color.White,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
@@ -323,5 +336,15 @@ private fun AnswerButton(
                 modifier = Modifier.weight(1f),
             )
         }
+    }
+}
+
+private fun answerOrderLabel(answerOrder: Int): String {
+    return when (answerOrder) {
+        0 -> "A"
+        1 -> "B"
+        2 -> "C"
+        3 -> "D"
+        else -> (answerOrder + 1).toString()
     }
 }

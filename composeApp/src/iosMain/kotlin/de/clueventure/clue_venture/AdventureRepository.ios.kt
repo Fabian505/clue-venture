@@ -241,15 +241,27 @@ actual suspend fun getQuizQuestions(adventureId: String): List<QuizQuestion> = w
             .filter { it.adventureId == numericAdventureId }
             .sortedBy { it.orderIndex }
 
-        questions.map { questionEntity ->
-            val answers = supabaseClient.from("quiz_answers")
+        val questionIds = questions.map { it.id }.toSet()
+        val answersByQuestionId = if (questionIds.isEmpty()) {
+            emptyMap<Long, List<QuizAnswer>>()
+        } else {
+            supabaseClient.from("quiz_answers")
                 .select()
                 .decodeList<QuizAnswerEntity>()
-                .filter { it.questionId == questionEntity.id }
-                .sortedBy { it.answerOrder }
-                .map { it.toQuizAnswer() }
+                .asSequence()
+                .filter { it.questionId in questionIds }
+                .groupBy { it.questionId }
+                .mapValues { (_, answerEntities) ->
+                    answerEntities
+                        .asSequence()
+                        .sortedBy { it.answerOrder }
+                        .map { it.toQuizAnswer() }
+                        .toList()
+                }
+        }
 
-            questionEntity.toQuizQuestion(answers)
+        questions.map { questionEntity ->
+            questionEntity.toQuizQuestion(answersByQuestionId[questionEntity.id].orEmpty())
         }
     }.getOrDefault(emptyList())
 }
@@ -286,6 +298,16 @@ actual suspend fun submitQuizAnswer(attemptId: Long, questionId: Long, answerId:
 
         answer.isCorrect
     }.getOrDefault(false)
+}
+
+actual suspend fun recordQuizAnswerEvaluation(event: QuizAnswerEvaluationEvent): Unit = withContext(Dispatchers.IO) {
+    if (event.attemptId == null) {
+        return@withContext
+    }
+
+    println(
+        "Quiz answer evaluated: attempt=${event.attemptId}, question=${event.questionId}, answer=${event.answerId}, correct=${event.isCorrect}",
+    )
 }
 
 // ============================================================================
