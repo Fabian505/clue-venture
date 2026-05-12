@@ -173,7 +173,8 @@ actual fun PlatformMap(
             return@LaunchedEffect
         }
 
-        routePoints = fetchRoutePoints(listOf(currentLocation) + routeTargets)
+        val waypoints = listOf(currentLocation) + routeTargets
+        routePoints = fetchRoutePoints(waypoints).ifEmpty { waypoints }
     }
 
     DisposableEffect(hasLocationPermission, mapLibreMap) {

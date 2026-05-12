@@ -52,14 +52,21 @@ fun AdventureGameScreen(
     modifier: Modifier = Modifier,
 ) {
     val coroutineScope = rememberCoroutineScope()
-    
+    val adventureLocations = remember(adventure.id, adventure.locations) {
+        adventure.locations.sortedBy { it.orderIndex }
+    }
+
     // State management
     var gameState by remember { mutableStateOf<GameState>(GameState.Loading) }
     var currentAttempt by remember(initialAttempt?.id) { mutableStateOf(initialAttempt) }
     var currentCheckpointIndex by remember { mutableIntStateOf(0) }
-    var currentLocationState by remember { mutableStateOf<GeoPointState?>(null) }
+    var currentLocationState by remember {
+        mutableStateOf<GeoPointState?>(currentLocation?.let {
+            GeoPointState(point = it, timestamp = "", accuracy = null)
+        })
+    }
     var quizQuestions by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
-    var distanceToWaypoint by remember { mutableStateOf(0.0) }
+    var distanceToWaypoint by remember { mutableStateOf(Double.POSITIVE_INFINITY) }
     var pointsEarned by remember { mutableIntStateOf(0) }
     var correctAnswerCount by remember { mutableIntStateOf(0) }
     var hasFinishedAttempt by remember { mutableStateOf(false) }
@@ -72,9 +79,9 @@ fun AdventureGameScreen(
     var attemptError by remember { mutableStateOf<String?>(null) }
     var finishError by remember { mutableStateOf<String?>(null) }
 
-    val currentWaypoint = adventure.locations.getOrNull(currentCheckpointIndex)
-    val isProximityAlertVisible = distanceToWaypoint in 0.0..50.0
-    val isWaypointReached = distanceToWaypoint < 5.0
+    val currentWaypoint = adventureLocations.getOrNull(currentCheckpointIndex)
+    val isProximityAlertVisible = currentLocationState != null && currentWaypoint != null
+    val isWaypointReached = currentLocationState != null && currentWaypoint != null && distanceToWaypoint < 5.0
 
     // Initialize adventure attempt
     LaunchedEffect(adventure.id) {
@@ -93,10 +100,10 @@ fun AdventureGameScreen(
                 // Load quiz questions for the adventure
                 quizQuestions = getQuizQuestions(adventure.id)
 
-                gameState = if (isAdventureComplete || currentWaypoint == null) {
-                    GameState.Complete
-                } else {
-                    GameState.Navigating
+                gameState = when {
+                    isAdventureComplete -> GameState.Complete
+                    adventureLocations.isEmpty() -> GameState.Error
+                    else -> GameState.Navigating
                 }
             } catch (e: Exception) {
                 println("Error initializing adventure: ${e.message}")
@@ -115,9 +122,6 @@ fun AdventureGameScreen(
                 val locationService = getLocationService()
                 locationService.startLocationTracking(interval = 10000) { location ->
                     currentLocationState = location
-                    currentWaypoint?.point?.let { waypointPoint ->
-                        distanceToWaypoint = location.point.distanceTo(waypointPoint)
-                    }
 
                     // Update progress in database
                     coroutineScope.launch {
@@ -136,9 +140,24 @@ fun AdventureGameScreen(
         }
     }
 
+    LaunchedEffect(currentLocationState?.point, currentWaypoint?.point) {
+        val location = currentLocationState?.point ?: run {
+            distanceToWaypoint = Double.POSITIVE_INFINITY
+            return@LaunchedEffect
+        }
+        val waypointPoint = currentWaypoint?.point ?: run {
+            distanceToWaypoint = Double.POSITIVE_INFINITY
+            return@LaunchedEffect
+        }
+
+        distanceToWaypoint = location.distanceTo(waypointPoint)
+    }
+
     // Handle waypoint reached
     LaunchedEffect(isWaypointReached) {
-        if (isWaypointReached && gameState == GameState.Navigating && currentWaypoint != null) {
+        if (currentLocationState == null || currentWaypoint == null) return@LaunchedEffect
+
+        if (isWaypointReached && gameState == GameState.Navigating) {
             println("Waypoint reached: ${currentWaypoint.name}")
             gameState = GameState.ShowingProximityAlert
 
@@ -162,7 +181,7 @@ fun AdventureGameScreen(
 
     LaunchedEffect(isAdventureComplete) {
         if (isAdventureComplete) {
-            currentCheckpointIndex = adventure.locations.lastIndex.coerceAtLeast(0)
+            currentCheckpointIndex = adventureLocations.lastIndex.coerceAtLeast(0)
             gameState = GameState.Complete
         }
     }
@@ -260,7 +279,7 @@ fun AdventureGameScreen(
                         )
 
                         Text(
-                            text = "Fortschritt: ${currentCheckpointIndex + 1}/${adventure.locations.size}",
+                            text = "Fortschritt: ${currentCheckpointIndex + 1}/${adventureLocations.size}",
                             fontSize = 14.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

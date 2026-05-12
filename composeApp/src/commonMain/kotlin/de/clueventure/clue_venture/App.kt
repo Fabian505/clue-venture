@@ -604,6 +604,7 @@ fun App() {
                                 isStartingAdventure = true
                                 startErrorMessage = null
                                 appScope.launch {
+                                    var adventureWithLocations = adventure
                                     if (!canStartAdventure(adventure.startPoint, currentLocation)) {
                                         startErrorMessage = "Du musst innerhalb von 10 m am Startpunkt sein."
                                         isStartingAdventure = false
@@ -619,12 +620,14 @@ fun App() {
                                             ?: throw IllegalStateException("Kein Benutzer angemeldet.")
                                         val attempt = getCurrentAttemptForAdventure(adventure.id, user.id)
                                             ?: startAdventureAttempt(adventure.id, user.id)
+                                        val sortedLocations = locations.sortedBy { it.orderIndex }
+                                        adventureWithLocations = adventure.copy(locations = sortedLocations)
                                         val targets = listOf(
                                             AdventureProgressTarget(
                                                 name = "Startpunkt",
                                                 point = adventure.startPoint,
                                             ),
-                                        ) + locations.sortedBy { it.orderIndex }.map { location ->
+                                        ) + sortedLocations.map { location ->
                                             AdventureProgressTarget(
                                                 name = location.name,
                                                 point = location.point,
@@ -632,7 +635,7 @@ fun App() {
                                         }
                                         routedAdventureId = adventure.id
                                         routeTargets = targets.map { it.point }
-                                        activeAdventureForOverlay = adventure
+                                        activeAdventureForOverlay = adventureWithLocations
                                         activeAdventureTargets = targets
                                         currentAdventureTargetIndex = 0
                                         reachedAdventureTarget = null
@@ -642,7 +645,7 @@ fun App() {
                                         selectedTab = BottomTab.Map
                                     }.onSuccess {
                                         // Activate the adventure so the game screen is shown
-                                        activeAdventure = adventure
+                                        activeAdventure = adventureWithLocations
                                         adventurePendingStart = null
                                         snackbarHostState.showSnackbar("Abenteuer gestartet: ${adventure.title}")
                                     }.onFailure { throwable ->
