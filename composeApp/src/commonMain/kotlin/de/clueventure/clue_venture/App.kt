@@ -253,49 +253,59 @@ fun App() {
         startErrorMessage = null
     }
 
-    LaunchedEffect(
-        currentLocation,
-        activeAdventureForOverlay?.id,
-        activeAdventureTargets,
-        currentAdventureTargetIndex,
-        reachedAdventureTarget,
-        isActiveAdventureComplete,
-    ) {
-        val location = currentLocation ?: return@LaunchedEffect
-        val adventure = activeAdventureForOverlay ?: return@LaunchedEffect
-        val target = activeAdventureTargets.getOrNull(currentAdventureTargetIndex) ?: return@LaunchedEffect
+     LaunchedEffect(
+         currentLocation,
+         activeAdventureForOverlay?.id,
+         activeAdventureTargets,
+         currentAdventureTargetIndex,
+         reachedAdventureTarget,
+         isActiveAdventureComplete,
+     ) {
+         val location = currentLocation ?: return@LaunchedEffect
+         val adventure = activeAdventureForOverlay ?: return@LaunchedEffect
+         val target = activeAdventureTargets.getOrNull(currentAdventureTargetIndex) ?: return@LaunchedEffect
 
-        if (reachedAdventureTarget != null || isActiveAdventureComplete) {
-            return@LaunchedEffect
-        }
+         if (reachedAdventureTarget != null || isActiveAdventureComplete) {
+             return@LaunchedEffect
+         }
 
-        if (target.point.distanceTo(location) > START_ADVENTURE_MAX_DISTANCE_METERS) {
-            return@LaunchedEffect
-        }
+         if (target.point.distanceTo(location) > START_ADVENTURE_MAX_DISTANCE_METERS) {
+             return@LaunchedEffect
+         }
 
-        val reachedCount = currentAdventureTargetIndex + 1
-        val totalCount = activeAdventureTargets.size
-        if (currentAdventureTargetIndex == activeAdventureTargets.lastIndex) {
-            routeTargets = emptyList()
-            routedAdventureId = null
-            activeAdventureForOverlay = null
-            activeAdventureTargets = emptyList()
-            currentAdventureTargetIndex = 0
-            reachedAdventureTarget = null
-            isAdventureOverlayExpanded = true
-            showEndAdventureConfirmation = false
-            activeAdventure = adventure
-            isActiveAdventureComplete = true
-        } else {
-            reachedAdventureTarget = ReachedAdventureTarget(
-                name = target.name,
-                reachedCount = reachedCount,
-                totalCount = totalCount,
-            )
-            currentAdventureTargetIndex = reachedCount
-            routeTargets = activeAdventureTargets.drop(reachedCount).map { it.point }
-        }
-    }
+         val reachedCount = currentAdventureTargetIndex + 1
+         val totalCount = activeAdventureTargets.size
+         if (currentAdventureTargetIndex == activeAdventureTargets.lastIndex) {
+             routeTargets = emptyList()
+             routedAdventureId = null
+             activeAdventureForOverlay = null
+             activeAdventureTargets = emptyList()
+             currentAdventureTargetIndex = 0
+             reachedAdventureTarget = null
+             isAdventureOverlayExpanded = true
+             showEndAdventureConfirmation = false
+             activeAdventure = adventure
+             isActiveAdventureComplete = true
+          } else {
+              // Skip showing the popup for the starting point - go directly to the first waypoint
+              if (currentAdventureTargetIndex == 0) {
+                  currentAdventureTargetIndex = reachedCount
+                  routeTargets = activeAdventureTargets.drop(reachedCount).map { it.point }
+              } else {
+                  // Show waypoint reached popup for non-starting waypoints
+                  reachedAdventureTarget = ReachedAdventureTarget(
+                      name = target.name,
+                      reachedCount = reachedCount,
+                      totalCount = totalCount,
+                  )
+                  currentAdventureTargetIndex = reachedCount
+                  routeTargets = activeAdventureTargets.drop(reachedCount).map { it.point }
+
+                  // Activate the game screen so the player can see the quiz or next waypoint info
+                  activeAdventure = adventure
+              }
+          }
+     }
 
     MaterialTheme {
         if (!isSessionLoaded) {
@@ -663,8 +673,8 @@ fun App() {
                                         isAdventureOverlayExpanded = true
                                         selectedTab = BottomTab.Map
                                     }.onSuccess {
-                                        // Activate the adventure so the game screen is shown
-                                        activeAdventure = adventureWithLocations
+                                        // Don't show game screen immediately - show the map first
+                                        // The game screen will be activated when the first waypoint is reached or if there's an error
                                         adventurePendingStart = null
                                         snackbarHostState.showSnackbar("Abenteuer gestartet: ${adventure.title}")
                                     }.onFailure { throwable ->

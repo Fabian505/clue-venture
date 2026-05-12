@@ -175,58 +175,6 @@ fun ProximityFeatureScreen(
     }
 }
 
-/**
- * Navigation indicator showing direction and distance to target waypoint
- */
-@Composable
-fun NavigationIndicator(
-    currentLocation: GeoPoint?,
-    targetLocation: GeoPoint,
-    targetName: String,
-    modifier: Modifier = Modifier,
-) {
-    if (currentLocation == null) {
-        Box(modifier = modifier.padding(16.dp)) {
-            Text("📍 Warte auf GPS-Signal...", color = MaterialTheme.colorScheme.onSurface)
-        }
-        return
-    }
-
-    val distance = currentLocation.distanceTo(targetLocation)
-    val arrowIcon = when {
-        distance < 10 -> "🎯"
-        distance < 50 -> "👈"
-        distance < 200 -> "🧭"
-        else -> "🗺️"
-    }
-    val distanceText = proximityDistanceText(distance)
-
-    Box(
-        modifier = modifier
-            .padding(16.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
-            .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
-            .padding(16.dp),
-    ) {
-        Column(
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = arrowIcon + " " + targetName,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Text(
-                text = "Entfernung: $distanceText",
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
-    }
-}
-
 private fun proximityDistanceText(distanceMeters: Double): String {
     return if (distanceMeters >= 1_000) {
         val kilometers = distanceMeters / 1_000.0

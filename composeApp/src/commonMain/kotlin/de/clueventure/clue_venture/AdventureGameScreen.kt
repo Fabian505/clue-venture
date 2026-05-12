@@ -259,15 +259,6 @@ fun AdventureGameScreen(
                             .padding(16.dp),
                         verticalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        currentWaypoint?.let {
-                            NavigationIndicator(
-                                currentLocation = currentLocationState?.point,
-                                targetLocation = it.point,
-                                targetName = it.name,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-
                         ProximityAlertPopup(
                             currentLocation = currentLocationState?.point,
                             targetLocation = currentWaypoint?.point ?: GeoPoint(0.0, 0.0),
@@ -275,12 +266,6 @@ fun AdventureGameScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .align(Alignment.CenterHorizontally),
-                        )
-
-                        Text(
-                            text = "Fortschritt: ${currentCheckpointIndex + 1}/${adventureLocations.size}",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
