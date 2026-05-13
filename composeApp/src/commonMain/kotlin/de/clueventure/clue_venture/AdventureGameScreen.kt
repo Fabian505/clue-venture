@@ -85,8 +85,7 @@ fun AdventureGameScreen(
     var expectingNewRouteDistanceForCheckpoint by remember { mutableStateOf(false) }
     var showQuizSheet by remember { mutableStateOf(false) }
     var currentQuizQuestion by remember { mutableStateOf<QuizQuestion?>(null) }
-    var currentQuestionIndex by remember { mutableIntStateOf(0) }
-    var isLoadingQuestion by remember { mutableStateOf(false) }
+    var currentQuizQuestionIndex by remember { mutableIntStateOf(0) }
     var lastReachedCheckpointIndex by remember { mutableIntStateOf(-1) }
     var answeredQuestionIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var pointsEarned by remember { mutableIntStateOf(0) }
@@ -338,7 +337,29 @@ fun AdventureGameScreen(
                             },
                             questionCount = totalQuizQuestionCount,
                             onQuestionsClicked = {
-                                gameState = GameState.ShowingQuiz
+                                if (showQuizSheet || totalQuizQuestionCount <= 0) {
+                                    return@PlatformMap
+                                }
+
+                                coroutineScope.launch {
+                                    val questionIndex = answeredQuestionIds.size.coerceAtMost(totalQuizQuestionCount - 1)
+                                    currentQuizQuestionIndex = questionIndex
+                                    currentQuizQuestion = null
+                                    showQuizSheet = true
+                                    gameState = GameState.ShowingQuiz
+
+                                    try {
+                                        currentQuizQuestion = getQuizQuestionByIndex(adventure.id, questionIndex)
+                                        if (currentQuizQuestion == null) {
+                                            showQuizSheet = false
+                                            gameState = GameState.Navigating
+                                        }
+                                    } catch (e: Exception) {
+                                        println("Error loading quiz question: ${e.message}")
+                                        showQuizSheet = false
+                                        gameState = GameState.Navigating
+                                    }
+                                }
                             },
                             onRouteDistanceChanged = { routeDistance ->
                                 currentRouteDistanceMeters = routeDistance
@@ -398,8 +419,7 @@ fun AdventureGameScreen(
                             },
                             questionCount = availableQuestionCount,
                             onQuestionsClicked = {
-                                // Keep the current question visible, just update the visibility
-
+                                // Quiz popup is already open here; ignore additional taps.
                             },
                             onRouteDistanceChanged = { routeDistance ->
                                 currentRouteDistanceMeters = routeDistance
@@ -433,13 +453,14 @@ fun AdventureGameScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Text(
-                                            text = "Verfuegbare Fragen (${availableQuestionCount})",
+                                            text = "Frage ${currentQuizQuestionIndex + 1}",
                                             fontSize = 18.sp,
                                             fontWeight = FontWeight.Bold,
                                         )
                                         TextButton(
                                             onClick = {
                                                 showQuizSheet = false
+                                                currentQuizQuestion = null
 
                                                 gameState = GameState.Navigating
                                             },
@@ -447,30 +468,44 @@ fun AdventureGameScreen(
                                             Text("Schliessen")
                                         }
                                     }
-                                    QuizScreen(
-                                        questions = listOfNotNull(currentQuizQuestion),
-                                        attemptId = currentAttempt?.id,
-                                        onAnswerEvaluated = { event ->
-                                            answeredQuestionIds = answeredQuestionIds + event.questionId
-                                            if (event.isCorrect) {
-                                                correctAnswerCount += 1
-                                            }
-                                            coroutineScope.launch {
-                                                recordQuizAnswerEvaluation(event)
-                                            }
-                                        },
-                                        onQuizCompleted = {
-                                            showQuizSheet = false
-                                            currentQuizQuestion = null
-                                            gameState = GameState.Navigating
-                                        },
-                                        onClose = {
-                                            showQuizSheet = false
-                                            currentQuizQuestion = null
-                                            gameState = GameState.Navigating
-                                        },
-                                        modifier = Modifier.fillMaxWidth(),
-                                    )
+
+                                    if (currentQuizQuestion == null) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier
+                                                .align(Alignment.CenterHorizontally)
+                                                .padding(16.dp),
+                                        )
+                                    } else {
+                                        currentQuizQuestion?.let { question ->
+                                            QuizScreen(
+                                                questions = listOf(question),
+                                                attemptId = currentAttempt?.id,
+                                                onAnswerEvaluated = { event ->
+                                                    answeredQuestionIds = answeredQuestionIds + event.questionId
+                                                    if (event.isCorrect) {
+                                                        correctAnswerCount += 1
+                                                    }
+                                                    coroutineScope.launch {
+                                                        recordQuizAnswerEvaluation(event)
+                                                    }
+                                                },
+                                                onQuizCompleted = {
+                                                    showQuizSheet = false
+                                                    currentQuizQuestion = null
+                                                    gameState = GameState.Navigating
+                                                },
+                                                onClose = {
+                                                    showQuizSheet = false
+                                                    currentQuizQuestion = null
+                                                    gameState = GameState.Navigating
+                                                },
+                                                modifier = Modifier.fillMaxWidth(),
+                                            )
+                                        } ?: Text(
+                                            text = "Keine Frage verfügbar.",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -621,8 +656,6 @@ fun AdventureGameScreen(
                         }
                     }
                 }
-
-                else -> {}
             }
         }
     }
@@ -742,7 +775,6 @@ private fun NavigationIndicator(
 enum class GameState {
     Loading,
     Navigating,
-    ShowingProximityAlert,
     ShowingQuiz,
     Complete,
     Error,
