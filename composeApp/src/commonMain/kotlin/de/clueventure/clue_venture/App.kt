@@ -214,7 +214,6 @@ fun App() {
     var isActiveAdventureComplete by remember { mutableStateOf(false) }
     var isAdventureOverlayExpanded by remember { mutableStateOf(true) }
     var showEndAdventureConfirmation by remember { mutableStateOf(false) }
-    var proximityFeatureTarget by remember { mutableStateOf<AdventureProgressTarget?>(null) }
     var adventureRefreshKey by remember { mutableStateOf(0) }
     var activeAdventure by remember { mutableStateOf<Adventure?>(null) }
     var activeAdventureAttempt by remember { mutableStateOf<AdventureAttempt?>(null) }
@@ -236,7 +235,6 @@ fun App() {
         activeAdventureAttempt = null
         isAdventureOverlayExpanded = true
         showEndAdventureConfirmation = false
-        proximityFeatureTarget = null
     }
 
     fun resetAuthenticatedUiState() {
@@ -371,14 +369,12 @@ fun App() {
                             activeAdventure = null
                             activeAdventureAttempt = null
                             isActiveAdventureComplete = false
-                            proximityFeatureTarget = null
                             adventureRefreshKey += 1
                             },
                             onClose = {
                                 activeAdventure = null
                                 activeAdventureAttempt = null
                                 isActiveAdventureComplete = false
-                                proximityFeatureTarget = null
                             },
                         ),
                         modifier = Modifier
@@ -427,7 +423,6 @@ fun App() {
                                 currentAdventureTargetIndex = 0
                                 reachedAdventureTarget = null
                                 isActiveAdventureComplete = false
-                                proximityFeatureTarget = null
                                 activeAdventureAttempt = null
                                 showEndAdventureConfirmation = false
                                 selectedTab = BottomTab.Map
@@ -467,9 +462,6 @@ fun App() {
                                     onToggleExpanded = {
                                         isAdventureOverlayExpanded = !isAdventureOverlayExpanded
                                     },
-                                    onOpenProximityFeature = { target ->
-                                        proximityFeatureTarget = target
-                                    },
                                     onEndAdventure = {
                                         showEndAdventureConfirmation = true
                                     },
@@ -478,17 +470,6 @@ fun App() {
                                         .fillMaxWidth()
                                         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
                                         .padding(horizontal = 12.dp, vertical = 8.dp),
-                                )
-                            }
-
-                            proximityFeatureTarget?.let { target ->
-                                ProximityFeatureScreen(
-                                    modifier = Modifier
-                                        .fillMaxSize(),
-                                    currentLocation = currentLocation,
-                                    targetLocation = target.point,
-                                    targetName = target.name,
-                                    onClose = { proximityFeatureTarget = null },
                                 )
                             }
                         }
@@ -1763,7 +1744,6 @@ private fun ActiveAdventureOverlay(
     currentLocation: GeoPoint?,
     isExpanded: Boolean,
     onToggleExpanded: () -> Unit,
-    onOpenProximityFeature: (AdventureProgressTarget) -> Unit,
     onEndAdventure: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1810,12 +1790,12 @@ private fun ActiveAdventureOverlay(
             }
 
             if (canOpenProximityFeature && currentTarget != null) {
-                Button(
-                    onClick = { onOpenProximityFeature(currentTarget) },
+                ProximityAlertPopup(
+                    currentLocation = currentLocation,
+                    targetLocation = currentTarget.point,
+                    isVisible = true,
                     modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Heißer/Kälter öffnen")
-                }
+                )
             }
 
             AnimatedVisibility(
