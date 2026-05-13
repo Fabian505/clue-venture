@@ -332,13 +332,11 @@ fun AdventureGameScreen(
                                     }
                                 }
                             },
-                            questionCount = availableQuestionCount,
+                            questionCount = quizQuestions.size,
                             onQuestionsClicked = {
-                                if (availableQuestions.isNotEmpty()) {
-                                    activeQuizQuestions = availableQuestions
-                                    showQuizSheet = true
-                                    gameState = GameState.ShowingQuiz
-                                }
+                                activeQuizQuestions = availableQuestions
+                                showQuizSheet = true
+                                gameState = GameState.ShowingQuiz
                             },
                             onRouteDistanceChanged = { routeDistance ->
                                 currentRouteDistanceMeters = routeDistance
@@ -440,12 +438,10 @@ fun AdventureGameScreen(
                                     }
                                 }
                             },
-                            questionCount = availableQuestionCount,
+                            questionCount = quizQuestions.size,
                             onQuestionsClicked = {
-                                if (availableQuestions.isNotEmpty()) {
-                                    activeQuizQuestions = availableQuestions
-                                    showQuizSheet = true
-                                }
+                                activeQuizQuestions = availableQuestions
+                                showQuizSheet = true
                             },
                             onRouteDistanceChanged = { routeDistance ->
                                 currentRouteDistanceMeters = routeDistance
