@@ -377,3 +377,19 @@ fun unlockedQuestionsForRouteDistance(routeDistanceMeters: Double?): Int {
 
     return floor(routeDistanceMeters / 200.0).toInt().coerceAtLeast(0)
 }
+
+fun updateUnlockedQuestionSlots(
+    currentUnlockedQuestionSlots: Int,
+    routeDistanceMeters: Double?,
+): Int {
+    return maxOf(currentUnlockedQuestionSlots, unlockedQuestionsForRouteDistance(routeDistanceMeters))
+}
+
+fun calculateAvailableQuestionCount(
+    totalQuestions: Int,
+    unlockedQuestionSlots: Int,
+    answeredQuestionCount: Int,
+): Int {
+    return maxOf(0, minOf(unlockedQuestionSlots, totalQuestions) - answeredQuestionCount)
+}
+

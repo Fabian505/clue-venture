@@ -35,17 +35,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.max
 
 /**
  * Main Adventure Game Screen - orchestrates the complete adventure experience
  * with GPS tracking, waypoints, quiz, and points calculation
  */
+data class AdventureGameCallbacks(
+    val onAdventureComplete: (pointsEarned: Int) -> Unit,
+    val onClose: () -> Unit,
+)
+
+//noinspection CognitiveComplexity
+//noinspection LongParameterList
 @Composable
 fun AdventureGameScreen(
     adventure: Adventure,
@@ -53,8 +59,7 @@ fun AdventureGameScreen(
     currentLocation: GeoPoint?,
     initialAttempt: AdventureAttempt? = null,
     isAdventureComplete: Boolean = false,
-    onAdventureComplete: (pointsEarned: Int) -> Unit,
-    onClose: () -> Unit,
+    callbacks: AdventureGameCallbacks,
     modifier: Modifier = Modifier,
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -76,6 +81,8 @@ fun AdventureGameScreen(
     var currentRouteDistanceMeters by remember { mutableStateOf<Double?>(null) }
     var unlockedQuestionSlots by remember { mutableIntStateOf(0) }
     var pendingUnlockCheckpointIndex by remember { mutableStateOf<Int?>(null) }
+    var pendingRouteDistanceMeters by remember { mutableStateOf<Double?>(null) }
+    var expectingNewRouteDistanceForCheckpoint by remember { mutableStateOf(false) }
     var showQuizSheet by remember { mutableStateOf(false) }
     var activeQuizQuestions by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
     var lastReachedCheckpointIndex by remember { mutableIntStateOf(-1) }
@@ -96,9 +103,10 @@ fun AdventureGameScreen(
     val isProximityAlertVisible = currentLocationState != null && currentWaypoint != null && distanceToWaypoint < 30.0
     val isWaypointReached = currentLocationState != null && currentWaypoint != null && distanceToWaypoint < 5.0
     val unansweredQuestions = quizQuestions.filterNot { it.id in answeredQuestionIds }
-    val availableQuestionCount = max(
-        0,
-        minOf(unlockedQuestionSlots, quizQuestions.size) - answeredQuestionIds.size,
+    val availableQuestionCount = calculateAvailableQuestionCount(
+        totalQuestions = quizQuestions.size,
+        unlockedQuestionSlots = unlockedQuestionSlots,
+        answeredQuestionCount = answeredQuestionIds.size,
     )
     val availableQuestions = unansweredQuestions.take(availableQuestionCount)
 
@@ -162,10 +170,12 @@ fun AdventureGameScreen(
     LaunchedEffect(currentLocationState?.point, currentWaypoint?.point) {
         val location = currentLocationState?.point ?: run {
             distanceToWaypoint = Double.POSITIVE_INFINITY
+            currentRouteDistanceMeters = null
             return@LaunchedEffect
         }
         val waypointPoint = currentWaypoint?.point ?: run {
             distanceToWaypoint = Double.POSITIVE_INFINITY
+            currentRouteDistanceMeters = null
             return@LaunchedEffect
         }
 
@@ -177,10 +187,12 @@ fun AdventureGameScreen(
         if (
             isWaypointReached &&
             gameState == GameState.Navigating &&
-            currentWaypoint != null &&
             currentCheckpointIndex != lastReachedCheckpointIndex
         ) {
             lastReachedCheckpointIndex = currentCheckpointIndex
+            expectingNewRouteDistanceForCheckpoint = true
+            currentRouteDistanceMeters = null
+            pendingRouteDistanceMeters = null
             moveToNextCheckpoint(
                 adventure,
                 currentCheckpointIndex,
@@ -190,24 +202,31 @@ fun AdventureGameScreen(
                 { gameState = it },
                 onCheckpointAdvanced = { nextIndex ->
                     pendingUnlockCheckpointIndex = nextIndex
-                    currentRouteDistanceMeters = null
                 },
             )
         }
     }
 
-    LaunchedEffect(pendingUnlockCheckpointIndex, currentCheckpointIndex, currentRouteDistanceMeters) {
+    LaunchedEffect(currentRouteDistanceMeters, expectingNewRouteDistanceForCheckpoint) {
+        if (expectingNewRouteDistanceForCheckpoint && currentRouteDistanceMeters != null) {
+            pendingRouteDistanceMeters = currentRouteDistanceMeters
+            expectingNewRouteDistanceForCheckpoint = false
+        }
+    }
+
+    LaunchedEffect(pendingUnlockCheckpointIndex, currentCheckpointIndex, pendingRouteDistanceMeters) {
         val pendingIndex = pendingUnlockCheckpointIndex ?: return@LaunchedEffect
         if (pendingIndex != currentCheckpointIndex) {
             return@LaunchedEffect
         }
 
-        val routeDistance = currentRouteDistanceMeters ?: return@LaunchedEffect
+        val routeDistance = pendingRouteDistanceMeters ?: return@LaunchedEffect
         val unlockedQuestions = unlockedQuestionsForRouteDistance(routeDistance)
         if (unlockedQuestions > 0) {
             unlockedQuestionSlots += unlockedQuestions
         }
         pendingUnlockCheckpointIndex = null
+        pendingRouteDistanceMeters = null
     }
 
     LaunchedEffect(isAdventureComplete) {
@@ -252,9 +271,9 @@ fun AdventureGameScreen(
                 Button(
                     onClick = {
                         if (gameState == GameState.Complete && hasFinishedAttempt) {
-                            onAdventureComplete(pointsEarned)
+                                    callbacks.onAdventureComplete(pointsEarned)
                         } else {
-                            onClose()
+                                    callbacks.onClose()
                         }
                     },
                 ) {
@@ -292,7 +311,7 @@ fun AdventureGameScreen(
                                 val updatedLocation = location?.let {
                                     GeoPointState(
                                         point = it,
-                                        timestamp = System.currentTimeMillis().toString(),
+                                        timestamp = "",
                                     )
                                 }
                                 currentLocationState = updatedLocation
@@ -332,11 +351,11 @@ fun AdventureGameScreen(
                                 .padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            currentWaypoint?.let {
+                            currentWaypoint?.let { waypoint ->
                                 NavigationIndicator(
                                     currentLocation = currentLocationState?.point,
-                                    targetLocation = it.point,
-                                    targetName = it.name,
+                                    targetLocation = waypoint.point,
+                                    targetName = waypoint.name,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                             }
@@ -351,7 +370,6 @@ fun AdventureGameScreen(
                                 currentLocation = currentLocationState?.point,
                                 targetLocation = currentWaypoint?.point ?: GeoPoint(0.0, 0.0),
                                 isVisible = isProximityAlertVisible,
-                                distanceMeters = distanceToWaypoint,
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -367,7 +385,7 @@ fun AdventureGameScreen(
                                 val updatedLocation = location?.let {
                                     GeoPointState(
                                         point = it,
-                                        timestamp = System.currentTimeMillis().toString(),
+                                        timestamp = "",
                                     )
                                 }
                                 currentLocationState = updatedLocation
@@ -411,7 +429,7 @@ fun AdventureGameScreen(
                                 val updatedLocation = location?.let {
                                     GeoPointState(
                                         point = it,
-                                        timestamp = System.currentTimeMillis().toString(),
+                                        timestamp = "",
                                     )
                                 }
                                 currentLocationState = updatedLocation
@@ -612,7 +630,7 @@ fun AdventureGameScreen(
                                                 customFeedback = customFeedback.trim().ifBlank { null },
                                             ),
                                         )
-                                        onAdventureComplete(pointsEarned)
+                                                    callbacks.onAdventureComplete(pointsEarned)
                                     } catch (e: Exception) {
                                         feedbackError = "Feedback konnte nicht gespeichert werden. Bitte versuche es erneut."
                                         println("Error submitting feedback: ${e.message}")
@@ -628,7 +646,7 @@ fun AdventureGameScreen(
                         }
 
                         TextButton(
-                            onClick = { onAdventureComplete(pointsEarned) },
+                            onClick = { callbacks.onAdventureComplete(pointsEarned) },
                             enabled = !isSubmittingFeedback,
                         ) {
                             Text("Ohne Feedback zurück zur Liste")
@@ -643,7 +661,7 @@ fun AdventureGameScreen(
                     ) {
                         Text("❌ Ein Fehler ist aufgetreten")
                         Spacer(modifier = Modifier.height(16.dp))
-                        Button(onClick = onClose) {
+                        Button(onClick = { callbacks.onClose() }) {
                             Text("Zurück")
                         }
                     }
@@ -717,6 +735,52 @@ private fun StarRatingInput(
     }
 }
 
+@Composable
+private fun NavigationIndicator(
+    currentLocation: GeoPoint?,
+    targetLocation: GeoPoint,
+    targetName: String,
+    modifier: Modifier = Modifier,
+) {
+    val distanceText = currentLocation?.distanceTo(targetLocation)?.let { distanceMeters ->
+        if (distanceMeters >= 1_000) {
+            val kilometers = distanceMeters / 1_000.0
+            "Entfernung zu $targetName: ${(kilometers * 10).toInt() / 10.0} km"
+        } else {
+            "Entfernung zu $targetName: ${distanceMeters.toInt()} m"
+        }
+    } ?: "Position wird ermittelt..."
+
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = "Nächstes Ziel",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = targetName,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = distanceText,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
 // Game state enum
 enum class GameState {
     Loading,
@@ -728,11 +792,12 @@ enum class GameState {
 }
 
 // Helper function to move to next checkpoint
-private suspend fun moveToNextCheckpoint(
+private fun moveToNextCheckpoint(
     adventure: Adventure,
     currentIndex: Int,
     updateIndex: (Int) -> Unit,
     updateGameState: (GameState) -> Unit,
+    onCheckpointAdvanced: (Int) -> Unit,
 ) {
     val nextIndex = currentIndex + 1
     if (nextIndex >= adventure.locations.size) {
@@ -741,6 +806,7 @@ private suspend fun moveToNextCheckpoint(
     } else {
         // Move to next waypoint
         updateIndex(nextIndex)
+        onCheckpointAdvanced(nextIndex)
         updateGameState(GameState.Navigating)
     }
 }

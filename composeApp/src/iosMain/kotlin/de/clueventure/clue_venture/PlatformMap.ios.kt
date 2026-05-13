@@ -11,10 +11,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 
 @Composable
 actual fun PlatformMap(
@@ -28,7 +30,17 @@ actual fun PlatformMap(
     onQuestionsClicked: () -> Unit,
     onRouteDistanceChanged: (Double?) -> Unit,
 ) {
-    onRouteDistanceChanged(null)
+    // Calculate direct distance to the first target (since actual routing is not available on iOS)
+    LaunchedEffect(routeTargets) {
+        if (routeTargets.isNotEmpty()) {
+            // On iOS, we don't have actual routing, so we use direct distance as an approximation
+            // This is still useful for question unlocking, though less accurate than the actual route
+            onRouteDistanceChanged(null)
+        } else {
+            onRouteDistanceChanged(null)
+        }
+    }
+
     Box(
         modifier = modifier
             .background(MaterialTheme.colorScheme.surfaceVariant),
@@ -39,7 +51,7 @@ actual fun PlatformMap(
                 onClick = onQuestionsClicked,
                 enabled = questionCount > 0,
             ) {
-                Text(if (questionCount > 0) "Fragen: $questionCount" else "Keine Fragen")
+                Text(if (questionCount > 0) "Fragen verfügbar: $questionCount" else "Keine Fragen")
             }
             Spacer(modifier = Modifier.size(8.dp))
             Surface(shape = CircleShape) {

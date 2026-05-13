@@ -360,7 +360,8 @@ fun App() {
                         currentLocation = currentLocation,
                         initialAttempt = activeAdventureAttempt,
                         isAdventureComplete = isActiveAdventureComplete,
-                        onAdventureComplete = { points ->
+                        callbacks = AdventureGameCallbacks(
+                            onAdventureComplete = { points ->
                             appScope.launch {
                                 snackbarHostState.showSnackbar(
                                     message = "🎉 $points Punkte verdient!",
@@ -372,13 +373,14 @@ fun App() {
                             isActiveAdventureComplete = false
                             proximityFeatureTarget = null
                             adventureRefreshKey += 1
-                        },
-                        onClose = {
-                            activeAdventure = null
-                            activeAdventureAttempt = null
-                            isActiveAdventureComplete = false
-                            proximityFeatureTarget = null
-                        },
+                            },
+                            onClose = {
+                                activeAdventure = null
+                                activeAdventureAttempt = null
+                                isActiveAdventureComplete = false
+                                proximityFeatureTarget = null
+                            },
+                        ),
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(innerPadding),

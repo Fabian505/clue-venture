@@ -40,13 +40,14 @@ fun ProximityAlertPopup(
     currentLocation: GeoPoint?,
     targetLocation: GeoPoint,
     isVisible: Boolean,
+    distanceMeters: Double? = null,
     modifier: Modifier = Modifier,
 ) {
     if (!isVisible || currentLocation == null) return
 
     val proximityStatus = currentLocation.proximityStatus(targetLocation, maxRangeMeters = 50.0)
     val displayText = proximityStatus.getDisplayText()
-    val distanceMeters = currentLocation.distanceTo(targetLocation)
+    val resolvedDistanceMeters = distanceMeters ?: currentLocation.distanceTo(targetLocation)
 
     val animatedScale by androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (proximityStatus == ProximityStatus.VERY_HOT) 1.1f else 1f,
@@ -95,7 +96,7 @@ fun ProximityAlertPopup(
 
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = proximityDistanceText(distanceMeters),
+                text = proximityDistanceText(resolvedDistanceMeters),
                 fontSize = 16.sp,
                 color = Color.White,
                 textAlign = TextAlign.Center,
@@ -123,7 +124,6 @@ fun ProximityFeatureScreen(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val distanceMeters = currentLocation?.distanceTo(targetLocation)
 
     Box(
         modifier = modifier
