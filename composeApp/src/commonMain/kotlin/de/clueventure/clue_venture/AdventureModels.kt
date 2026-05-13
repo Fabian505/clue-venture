@@ -112,35 +112,76 @@ fun ProximityStatus.getHexColor(): String = when (this) {
 
 val sampleAdventures = listOf(
 	Adventure(
-		id = "old-town-mystery",
-		title = "Geheimnis der Altstadt",
-		summary = "Spaziere durch die Altstadtgassen und folge den ersten Spuren.",
-		startPoint = GeoPoint(latitude = 52.5209, longitude = 13.4095),
-	),
-	Adventure(
-		id = "harbor-trail",
-		title = "Hafenpfad",
-		summary = "Ein Abenteuer zwischen Wasser, Kaimauern und versteckten Hinweisen.",
-		startPoint = GeoPoint(latitude = 52.5141, longitude = 13.3567),
-	),
-	Adventure(
-		id = "city-park-code",
-		title = "Code im Stadtpark",
-		summary = "Knacke die Rätsel an den Wegen und finde den nächsten Treffpunkt.",
-		startPoint = GeoPoint(latitude = 52.5018, longitude = 13.4471),
-	),
-	Adventure(
-		id = "museum-chase",
-		title = "Museum Chase",
-		summary = "Eine kurze Jagd mit einem Startpunkt in der Nähe der Museumsinsel.",
-		startPoint = GeoPoint(latitude = 52.5169, longitude = 13.4010),
-	),
-	Adventure(
-		id = "street-art-hunt",
-		title = "Street Art Jagd",
-		summary = "Entdecke die verborgenen Kunstwerke und finde den nächsten Hinweis.",
-		startPoint = GeoPoint(latitude = 48.44337, longitude = 8.68579),
-	),
+        id = "1",
+        title = "Geheimnis der Altstadt",
+        summary = "Spaziere durch die Altstadtgassen und folge den ersten Spuren.",
+        startPoint = GeoPoint(latitude = 52.5209, longitude = 13.4095),
+        locations = listOf(
+            AdventureLocation(
+                name = "Nikolaiviertel",
+                point = GeoPoint(latitude = 52.5186, longitude = 13.4067),
+                orderIndex = 0
+            ),
+            AdventureLocation(
+                name = "Altes Stadthaus",
+                point = GeoPoint(latitude = 52.5168, longitude = 13.4094),
+                orderIndex = 1
+            ),
+        ),
+    ),
+    Adventure(
+        id = "2",
+        title = "Hafenpfad",
+        summary = "Ein Abenteuer zwischen Wasser, Kaimauern und versteckten Hinweisen.",
+        startPoint = GeoPoint(latitude = 52.5141, longitude = 13.3567),
+        locations = listOf(
+            AdventureLocation(
+                name = "Spreeufer",
+                point = GeoPoint(latitude = 52.5137, longitude = 13.3546),
+                orderIndex = 0
+            ),
+            AdventureLocation(
+                name = "Anleger Ost",
+                point = GeoPoint(latitude = 52.5121, longitude = 13.3587),
+                orderIndex = 1
+            ),
+        ),
+    ),
+    Adventure(
+        id = "3",
+        title = "Code im Stadtpark",
+        summary = "Knacke die Rätsel an den Wegen und finde den nächsten Treffpunkt.",
+        startPoint = GeoPoint(latitude = 52.5018, longitude = 13.4471),
+        locations = listOf(
+            AdventureLocation(
+                name = "Nordtor Park",
+                point = GeoPoint(latitude = 52.5035, longitude = 13.4445),
+                orderIndex = 0
+            ),
+            AdventureLocation(
+                name = "Seepavillon",
+                point = GeoPoint(latitude = 52.5009, longitude = 13.4489),
+                orderIndex = 1
+            ),
+            AdventureLocation(
+                name = "Südeingang",
+                point = GeoPoint(latitude = 52.4987, longitude = 13.4461),
+                orderIndex = 2
+            ),
+        ),
+    ),
+    Adventure(
+        id = "4",
+        title = "Museum Chase",
+        summary = "Eine kurze Jagd mit einem Startpunkt in der Nähe der Museumsinsel.",
+        startPoint = GeoPoint(latitude = 52.5169, longitude = 13.4010),
+    ),
+    Adventure(
+        id = "5",
+        title = "Street Art Jagd",
+        summary = "Entdecke die verborgenen Kunstwerke und finde den nächsten Hinweis.",
+        startPoint = GeoPoint(latitude = 48.44337, longitude = 8.68579),
+    ),
 )
 
 // ============================================================================
@@ -390,6 +431,7 @@ fun calculateAvailableQuestionCount(
     unlockedQuestionSlots: Int,
     answeredQuestionCount: Int,
 ): Int {
-    return maxOf(0, minOf(unlockedQuestionSlots, totalQuestions) - answeredQuestionCount)
+    // Show total available questions (not yet answered)
+    // unlockedQuestionSlots is not considered here - all questions are available from the start
+    return maxOf(0, totalQuestions - answeredQuestionCount)
 }
-

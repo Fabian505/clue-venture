@@ -76,7 +76,7 @@ fun AdventureGameScreen(
             GeoPointState(point = it, timestamp = "", accuracy = null)
         })
     }
-    var quizQuestions by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
+    var totalQuizQuestionCount by remember { mutableIntStateOf(0) }
     var distanceToWaypoint by remember { mutableStateOf(Double.POSITIVE_INFINITY) }
     var currentRouteDistanceMeters by remember { mutableStateOf<Double?>(null) }
     var unlockedQuestionSlots by remember { mutableIntStateOf(0) }
@@ -84,7 +84,9 @@ fun AdventureGameScreen(
     var pendingRouteDistanceMeters by remember { mutableStateOf<Double?>(null) }
     var expectingNewRouteDistanceForCheckpoint by remember { mutableStateOf(false) }
     var showQuizSheet by remember { mutableStateOf(false) }
-    var activeQuizQuestions by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
+    var currentQuizQuestion by remember { mutableStateOf<QuizQuestion?>(null) }
+    var currentQuestionIndex by remember { mutableIntStateOf(0) }
+    var isLoadingQuestion by remember { mutableStateOf(false) }
     var lastReachedCheckpointIndex by remember { mutableIntStateOf(-1) }
     var answeredQuestionIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var pointsEarned by remember { mutableIntStateOf(0) }
@@ -102,13 +104,13 @@ fun AdventureGameScreen(
     val currentWaypoint = adventureLocations.getOrNull(currentCheckpointIndex)
     val isProximityAlertVisible = currentLocationState != null && currentWaypoint != null && distanceToWaypoint < 30.0
     val isWaypointReached = currentLocationState != null && currentWaypoint != null && distanceToWaypoint < 5.0
-    val unansweredQuestions = quizQuestions.filterNot { it.id in answeredQuestionIds }
-    val availableQuestionCount = calculateAvailableQuestionCount(
-        totalQuestions = quizQuestions.size,
-        unlockedQuestionSlots = unlockedQuestionSlots,
-        answeredQuestionCount = answeredQuestionIds.size,
-    )
-    val availableQuestions = unansweredQuestions.take(availableQuestionCount)
+    val availableQuestionCount = remember(totalQuizQuestionCount, unlockedQuestionSlots, answeredQuestionIds) {
+        calculateAvailableQuestionCount(
+            totalQuestions = totalQuizQuestionCount,
+            unlockedQuestionSlots = unlockedQuestionSlots,
+            answeredQuestionCount = answeredQuestionIds.size,
+        )
+    }
 
     // Initialize adventure attempt
     LaunchedEffect(adventure.id) {
@@ -125,7 +127,7 @@ fun AdventureGameScreen(
                 attemptError = null
 
                 // Load quiz questions for the adventure
-                quizQuestions = getQuizQuestions(adventure.id)
+                totalQuizQuestionCount = getQuizQuestionCount(adventure.id)
 
                 gameState = when {
                     isAdventureComplete -> GameState.Complete
@@ -134,7 +136,8 @@ fun AdventureGameScreen(
                 }
             } catch (e: Exception) {
                 println("Error initializing adventure: ${e.message}")
-                attemptError = "Feedback kann aktuell nicht gespeichert werden, weil kein Abenteuer-Versuch gefunden wurde."
+                attemptError =
+                    "Feedback kann aktuell nicht gespeichert werden, weil kein Abenteuer-Versuch gefunden wurde."
                 if (!isAdventureComplete) {
                     gameState = GameState.Error
                 }
@@ -246,7 +249,8 @@ fun AdventureGameScreen(
                 finishError = null
             } catch (e: Exception) {
                 println("Error finishing adventure: ${e.message}")
-                finishError = "Das Abenteuer konnte nicht vollstaendig abgeschlossen werden. Feedback kann erst nach einem erfolgreichen Abschluss gespeichert werden."
+                finishError =
+                    "Das Abenteuer konnte nicht vollstaendig abgeschlossen werden. Feedback kann erst nach einem erfolgreichen Abschluss gespeichert werden."
             } finally {
                 isFinishingAttempt = false
             }
@@ -271,9 +275,9 @@ fun AdventureGameScreen(
                 Button(
                     onClick = {
                         if (gameState == GameState.Complete && hasFinishedAttempt) {
-                                    callbacks.onAdventureComplete(pointsEarned)
+                            callbacks.onAdventureComplete(pointsEarned)
                         } else {
-                                    callbacks.onClose()
+                            callbacks.onClose()
                         }
                     },
                 ) {
@@ -332,10 +336,8 @@ fun AdventureGameScreen(
                                     }
                                 }
                             },
-                            questionCount = quizQuestions.size,
+                            questionCount = totalQuizQuestionCount,
                             onQuestionsClicked = {
-                                activeQuizQuestions = availableQuestions
-                                showQuizSheet = true
                                 gameState = GameState.ShowingQuiz
                             },
                             onRouteDistanceChanged = { routeDistance ->
@@ -374,7 +376,7 @@ fun AdventureGameScreen(
                     }
                 }
 
-                GameState.ShowingProximityAlert -> {
+                GameState.ShowingQuiz -> {
                     Box(modifier = Modifier.fillMaxSize()) {
                         PlatformMap(
                             modifier = Modifier.fillMaxSize(),
@@ -396,52 +398,8 @@ fun AdventureGameScreen(
                             },
                             questionCount = availableQuestionCount,
                             onQuestionsClicked = {
-                                if (availableQuestions.isNotEmpty()) {
-                                    activeQuizQuestions = availableQuestions
-                                    showQuizSheet = true
-                                    gameState = GameState.ShowingQuiz
-                                }
-                            },
-                            onRouteDistanceChanged = { routeDistance ->
-                                currentRouteDistanceMeters = routeDistance
-                            },
-                        )
+                                // Keep the current question visible, just update the visibility
 
-                        ProximityAlertPopup(
-                            currentLocation = currentLocationState?.point,
-                            targetLocation = currentWaypoint?.point ?: GeoPoint(0.0, 0.0),
-                            isVisible = true,
-                                modifier = Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.Center),
-                        )
-                    }
-                }
-
-                GameState.ShowingQuiz -> {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        PlatformMap(
-                            modifier = Modifier.fillMaxSize(),
-                            routeTargets = currentWaypoint?.point?.let { listOf(it) }.orEmpty(),
-                            onCurrentLocationChanged = { location ->
-                                val updatedLocation = location?.let {
-                                    GeoPointState(
-                                        point = it,
-                                        timestamp = "",
-                                    )
-                                }
-                                currentLocationState = updatedLocation
-
-                                location?.let { currentLocation ->
-                                    currentWaypoint?.point?.let { waypointPoint ->
-                                        distanceToWaypoint = currentLocation.distanceTo(waypointPoint)
-                                    }
-                                }
-                            },
-                            questionCount = quizQuestions.size,
-                            onQuestionsClicked = {
-                                activeQuizQuestions = availableQuestions
-                                showQuizSheet = true
                             },
                             onRouteDistanceChanged = { routeDistance ->
                                 currentRouteDistanceMeters = routeDistance
@@ -475,22 +433,22 @@ fun AdventureGameScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Text(
-                                            text = "Verfuegbare Fragen (${activeQuizQuestions.size})",
+                                            text = "Verfuegbare Fragen (${availableQuestionCount})",
                                             fontSize = 18.sp,
                                             fontWeight = FontWeight.Bold,
                                         )
                                         TextButton(
                                             onClick = {
                                                 showQuizSheet = false
+
                                                 gameState = GameState.Navigating
                                             },
                                         ) {
                                             Text("Schliessen")
                                         }
                                     }
-
                                     QuizScreen(
-                                        questions = activeQuizQuestions,
+                                        questions = listOfNotNull(currentQuizQuestion),
                                         attemptId = currentAttempt?.id,
                                         onAnswerEvaluated = { event ->
                                             answeredQuestionIds = answeredQuestionIds + event.questionId
@@ -503,12 +461,12 @@ fun AdventureGameScreen(
                                         },
                                         onQuizCompleted = {
                                             showQuizSheet = false
-                                            activeQuizQuestions = emptyList()
+                                            currentQuizQuestion = null
                                             gameState = GameState.Navigating
                                         },
                                         onClose = {
                                             showQuizSheet = false
-                                            activeQuizQuestions = emptyList()
+                                            currentQuizQuestion = null
                                             gameState = GameState.Navigating
                                         },
                                         modifier = Modifier.fillMaxWidth(),
@@ -626,9 +584,10 @@ fun AdventureGameScreen(
                                                 customFeedback = customFeedback.trim().ifBlank { null },
                                             ),
                                         )
-                                                    callbacks.onAdventureComplete(pointsEarned)
+                                        callbacks.onAdventureComplete(pointsEarned)
                                     } catch (e: Exception) {
-                                        feedbackError = "Feedback konnte nicht gespeichert werden. Bitte versuche es erneut."
+                                        feedbackError =
+                                            "Feedback konnte nicht gespeichert werden. Bitte versuche es erneut."
                                         println("Error submitting feedback: ${e.message}")
                                     } finally {
                                         isSubmittingFeedback = false
@@ -636,7 +595,7 @@ fun AdventureGameScreen(
                                 }
                             },
                             enabled = hasFinishedAttempt && !isFinishingAttempt && !isSubmittingFeedback &&
-                                currentAttempt != null && difficultyRating in 1..5 && overallRating in 1..5,
+                                    currentAttempt != null && difficultyRating in 1..5 && overallRating in 1..5,
                         ) {
                             Text(if (isSubmittingFeedback) "Wird gesendet..." else "Feedback senden")
                         }
@@ -662,6 +621,8 @@ fun AdventureGameScreen(
                         }
                     }
                 }
+
+                else -> {}
             }
         }
     }
