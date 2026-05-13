@@ -27,11 +27,10 @@ class ComposeAppCommonTest {
     }
 
     @Test
-    fun availableQuestionCountShowsAllQuestionsMinusAnswered() {
-        // All questions are available from the start (unlockedQuestionSlots is not considered)
+    fun availableQuestionCountIsClampedAndSubtractsAnsweredQuestions() {
         assertEquals(0, calculateAvailableQuestionCount(totalQuestions = 0, unlockedQuestionSlots = 5, answeredQuestionCount = 0))
-        assertEquals(5, calculateAvailableQuestionCount(totalQuestions = 5, unlockedQuestionSlots = 2, answeredQuestionCount = 0))
-        assertEquals(3, calculateAvailableQuestionCount(totalQuestions = 5, unlockedQuestionSlots = 3, answeredQuestionCount = 2))
+        assertEquals(2, calculateAvailableQuestionCount(totalQuestions = 5, unlockedQuestionSlots = 2, answeredQuestionCount = 0))
+        assertEquals(1, calculateAvailableQuestionCount(totalQuestions = 5, unlockedQuestionSlots = 3, answeredQuestionCount = 2))
         assertEquals(0, calculateAvailableQuestionCount(totalQuestions = 2, unlockedQuestionSlots = 1, answeredQuestionCount = 2))
     }
 }

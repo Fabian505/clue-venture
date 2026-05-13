@@ -76,7 +76,7 @@ fun AdventureGameScreen(
             GeoPointState(point = it, timestamp = "", accuracy = null)
         })
     }
-    var totalQuizQuestionCount by remember { mutableIntStateOf(0) }
+    var quizQuestions by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
     var distanceToWaypoint by remember { mutableStateOf(Double.POSITIVE_INFINITY) }
     var currentRouteDistanceMeters by remember { mutableStateOf<Double?>(null) }
     var unlockedQuestionSlots by remember { mutableIntStateOf(0) }
@@ -84,9 +84,7 @@ fun AdventureGameScreen(
     var pendingRouteDistanceMeters by remember { mutableStateOf<Double?>(null) }
     var expectingNewRouteDistanceForCheckpoint by remember { mutableStateOf(false) }
     var showQuizSheet by remember { mutableStateOf(false) }
-    var currentQuizQuestion by remember { mutableStateOf<QuizQuestion?>(null) }
-    var currentQuestionIndex by remember { mutableIntStateOf(0) }
-    var isLoadingQuestion by remember { mutableStateOf(false) }
+    var activeQuizQuestions by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
     var lastReachedCheckpointIndex by remember { mutableIntStateOf(-1) }
     var answeredQuestionIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var pointsEarned by remember { mutableIntStateOf(0) }
@@ -104,13 +102,13 @@ fun AdventureGameScreen(
     val currentWaypoint = adventureLocations.getOrNull(currentCheckpointIndex)
     val isProximityAlertVisible = currentLocationState != null && currentWaypoint != null && distanceToWaypoint < 30.0
     val isWaypointReached = currentLocationState != null && currentWaypoint != null && distanceToWaypoint < 5.0
-    val availableQuestionCount = remember(totalQuizQuestionCount, unlockedQuestionSlots, answeredQuestionIds) {
-        calculateAvailableQuestionCount(
-            totalQuestions = totalQuizQuestionCount,
-            unlockedQuestionSlots = unlockedQuestionSlots,
-            answeredQuestionCount = answeredQuestionIds.size,
-        )
-    }
+    val unansweredQuestions = quizQuestions.filterNot { it.id in answeredQuestionIds }
+    val availableQuestionCount = calculateAvailableQuestionCount(
+        totalQuestions = quizQuestions.size,
+        unlockedQuestionSlots = unlockedQuestionSlots,
+        answeredQuestionCount = answeredQuestionIds.size,
+    )
+    val availableQuestions = unansweredQuestions.take(availableQuestionCount)
 
     // Initialize adventure attempt
     LaunchedEffect(adventure.id) {
@@ -126,10 +124,8 @@ fun AdventureGameScreen(
                 currentAttempt = attempt
                 attemptError = null
 
-                // Load quiz question count (not all questions)
-                println("DEBUG: Starting to load quiz question count for adventure ID: ${adventure.id}")
-                totalQuizQuestionCount = getQuizQuestionCount(adventure.id)
-                println("DEBUG: Loaded $totalQuizQuestionCount quiz questions for adventure ${adventure.id}")
+                // Load quiz questions for the adventure
+                quizQuestions = getQuizQuestions(adventure.id)
 
                 gameState = when {
                     isAdventureComplete -> GameState.Complete
@@ -138,7 +134,6 @@ fun AdventureGameScreen(
                 }
             } catch (e: Exception) {
                 println("Error initializing adventure: ${e.message}")
-                e.printStackTrace()
                 attemptError = "Feedback kann aktuell nicht gespeichert werden, weil kein Abenteuer-Versuch gefunden wurde."
                 if (!isAdventureComplete) {
                     gameState = GameState.Error
@@ -296,7 +291,90 @@ fun AdventureGameScreen(
             contentAlignment = Alignment.Center,
         ) {
             when (gameState) {
-                GameState.ShowingQuiz -> {
+                GameState.Loading -> {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        CircularProgressIndicator()
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Abenteuer wird vorbereitet...")
+                    }
+                }
+
+                GameState.Navigating -> {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        PlatformMap(
+                            modifier = Modifier.fillMaxSize(),
+                            routeTargets = currentWaypoint?.point?.let { listOf(it) }.orEmpty(),
+                            onCurrentLocationChanged = { location ->
+                                val updatedLocation = location?.let {
+                                    GeoPointState(
+                                        point = it,
+                                        timestamp = "",
+                                    )
+                                }
+                                currentLocationState = updatedLocation
+
+                                location?.let { currentLocation ->
+                                    currentWaypoint?.point?.let { waypointPoint ->
+                                        distanceToWaypoint = currentLocation.distanceTo(waypointPoint)
+                                    }
+                                }
+
+                                currentAttempt?.id?.let { attemptId ->
+                                    coroutineScope.launch {
+                                        try {
+                                            updateUserProgress(attemptId, currentCheckpointIndex, updatedLocation)
+                                        } catch (e: Exception) {
+                                            println("Error updating progress: ${e.message}")
+                                        }
+                                    }
+                                }
+                            },
+                            questionCount = quizQuestions.size,
+                            onQuestionsClicked = {
+                                activeQuizQuestions = availableQuestions
+                                showQuizSheet = true
+                                gameState = GameState.ShowingQuiz
+                            },
+                            onRouteDistanceChanged = { routeDistance ->
+                                currentRouteDistanceMeters = routeDistance
+                            },
+                        )
+
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            currentWaypoint?.let { waypoint ->
+                                NavigationIndicator(
+                                    currentLocation = currentLocationState?.point,
+                                    targetLocation = waypoint.point,
+                                    targetName = waypoint.name,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+
+                            Text(
+                                text = "Fortschritt: ${currentCheckpointIndex + 1}/${adventure.locations.size}",
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+
+                            ProximityAlertPopup(
+                                currentLocation = currentLocationState?.point,
+                                targetLocation = currentWaypoint?.point ?: GeoPoint(0.0, 0.0),
+                                isVisible = isProximityAlertVisible,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+
+                GameState.ShowingProximityAlert -> {
                     Box(modifier = Modifier.fillMaxSize()) {
                         PlatformMap(
                             modifier = Modifier.fillMaxSize(),
@@ -318,7 +396,52 @@ fun AdventureGameScreen(
                             },
                             questionCount = availableQuestionCount,
                             onQuestionsClicked = {
-                                // Keep the current question visible, just update the visibility
+                                if (availableQuestions.isNotEmpty()) {
+                                    activeQuizQuestions = availableQuestions
+                                    showQuizSheet = true
+                                    gameState = GameState.ShowingQuiz
+                                }
+                            },
+                            onRouteDistanceChanged = { routeDistance ->
+                                currentRouteDistanceMeters = routeDistance
+                            },
+                        )
+
+                        ProximityAlertPopup(
+                            currentLocation = currentLocationState?.point,
+                            targetLocation = currentWaypoint?.point ?: GeoPoint(0.0, 0.0),
+                            isVisible = true,
+                                modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.Center),
+                        )
+                    }
+                }
+
+                GameState.ShowingQuiz -> {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        PlatformMap(
+                            modifier = Modifier.fillMaxSize(),
+                            routeTargets = currentWaypoint?.point?.let { listOf(it) }.orEmpty(),
+                            onCurrentLocationChanged = { location ->
+                                val updatedLocation = location?.let {
+                                    GeoPointState(
+                                        point = it,
+                                        timestamp = "",
+                                    )
+                                }
+                                currentLocationState = updatedLocation
+
+                                location?.let { currentLocation ->
+                                    currentWaypoint?.point?.let { waypointPoint ->
+                                        distanceToWaypoint = currentLocation.distanceTo(waypointPoint)
+                                    }
+                                }
+                            },
+                            questionCount = quizQuestions.size,
+                            onQuestionsClicked = {
+                                activeQuizQuestions = availableQuestions
+                                showQuizSheet = true
                             },
                             onRouteDistanceChanged = { routeDistance ->
                                 currentRouteDistanceMeters = routeDistance
@@ -352,14 +475,13 @@ fun AdventureGameScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Text(
-                                            text = "Frage ${currentQuestionIndex + 1} von $totalQuizQuestionCount",
+                                            text = "Verfuegbare Fragen (${activeQuizQuestions.size})",
                                             fontSize = 18.sp,
                                             fontWeight = FontWeight.Bold,
                                         )
                                         TextButton(
                                             onClick = {
                                                 showQuizSheet = false
-                                                currentQuizQuestion = null
                                                 gameState = GameState.Navigating
                                             },
                                         ) {
@@ -367,38 +489,30 @@ fun AdventureGameScreen(
                                         }
                                     }
 
-                                    if (isLoadingQuestion) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier
-                                                .align(Alignment.CenterHorizontally)
-                                                .padding(16.dp),
-                                        )
-                                    } else if (currentQuizQuestion != null) {
-                                        QuizScreen(
-                                            questions = listOfNotNull(currentQuizQuestion),
-                                            attemptId = currentAttempt?.id,
-                                            onAnswerEvaluated = { event ->
-                                                answeredQuestionIds = answeredQuestionIds + event.questionId
-                                                if (event.isCorrect) {
-                                                    correctAnswerCount += 1
-                                                }
-                                                coroutineScope.launch {
-                                                    recordQuizAnswerEvaluation(event)
-                                                }
-                                            },
-                                            onQuizCompleted = {
-                                                showQuizSheet = false
-                                                currentQuizQuestion = null
-                                                gameState = GameState.Navigating
-                                            },
-                                            onClose = {
-                                                showQuizSheet = false
-                                                currentQuizQuestion = null
-                                                gameState = GameState.Navigating
-                                            },
-                                            modifier = Modifier.fillMaxWidth(),
-                                        )
-                                    }
+                                    QuizScreen(
+                                        questions = activeQuizQuestions,
+                                        attemptId = currentAttempt?.id,
+                                        onAnswerEvaluated = { event ->
+                                            answeredQuestionIds = answeredQuestionIds + event.questionId
+                                            if (event.isCorrect) {
+                                                correctAnswerCount += 1
+                                            }
+                                            coroutineScope.launch {
+                                                recordQuizAnswerEvaluation(event)
+                                            }
+                                        },
+                                        onQuizCompleted = {
+                                            showQuizSheet = false
+                                            activeQuizQuestions = emptyList()
+                                            gameState = GameState.Navigating
+                                        },
+                                        onClose = {
+                                            showQuizSheet = false
+                                            activeQuizQuestions = emptyList()
+                                            gameState = GameState.Navigating
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
                                 }
                             }
                         }
@@ -536,7 +650,18 @@ fun AdventureGameScreen(
                     }
                 }
 
-                else -> {}
+                GameState.Error -> {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Text("❌ Ein Fehler ist aufgetreten")
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(onClick = { callbacks.onClose() }) {
+                            Text("Zurück")
+                        }
+                    }
+                }
             }
         }
     }
@@ -606,10 +731,57 @@ private fun StarRatingInput(
     }
 }
 
+@Composable
+private fun NavigationIndicator(
+    currentLocation: GeoPoint?,
+    targetLocation: GeoPoint,
+    targetName: String,
+    modifier: Modifier = Modifier,
+) {
+    val distanceText = currentLocation?.distanceTo(targetLocation)?.let { distanceMeters ->
+        if (distanceMeters >= 1_000) {
+            val kilometers = distanceMeters / 1_000.0
+            "Entfernung zu $targetName: ${(kilometers * 10).toInt() / 10.0} km"
+        } else {
+            "Entfernung zu $targetName: ${distanceMeters.toInt()} m"
+        }
+    } ?: "Position wird ermittelt..."
+
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = "Nächstes Ziel",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = targetName,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = distanceText,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
 // Game state enum
 enum class GameState {
     Loading,
     Navigating,
+    ShowingProximityAlert,
     ShowingQuiz,
     Complete,
     Error,

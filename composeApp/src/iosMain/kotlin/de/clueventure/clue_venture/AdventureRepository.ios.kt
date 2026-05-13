@@ -241,87 +241,29 @@ actual suspend fun getQuizQuestions(adventureId: String): List<QuizQuestion> = w
             .filter { it.adventureId == numericAdventureId }
             .sortedBy { it.orderIndex }
 
-        if (questions.isEmpty()) {
-            return@runCatching emptyList()
+        val questionIds = questions.map { it.id }.toSet()
+        val answersByQuestionId = if (questionIds.isEmpty()) {
+            emptyMap<Long, List<QuizAnswer>>()
+        } else {
+            supabaseClient.from("quiz_answers")
+                .select()
+                .decodeList<QuizAnswerEntity>()
+                .asSequence()
+                .filter { it.questionId in questionIds }
+                .groupBy { it.questionId }
+                .mapValues { (_, answerEntities) ->
+                    answerEntities
+                        .asSequence()
+                        .sortedBy { it.answerOrder }
+                        .map { it.toQuizAnswer() }
+                        .toList()
+                }
         }
-
-        val questionIds = questions.map { it.id }
-        val answers = supabaseClient.from("quiz_answers")
-            .select()
-            .decodeList<QuizAnswerEntity>()
-            .filter { it.questionId in questionIds }
-            .sortedBy { it.answerOrder }
-
-        val answersByQuestionId = answers.groupBy { it.questionId }
-            .mapValues { (_, answerEntities) ->
-                answerEntities.map { it.toQuizAnswer() }
-            }
 
         questions.map { questionEntity ->
             questionEntity.toQuizQuestion(answersByQuestionId[questionEntity.id].orEmpty())
         }
-    }.onFailure { e ->
-        println("Error fetching quiz questions for adventure $adventureId: ${e.message}")
-        e.printStackTrace()
     }.getOrDefault(emptyList())
-}
-
-@Suppress("unused")
-actual suspend fun getQuizQuestionCount(adventureId: String): Int = withContext(Dispatchers.IO) {
-    val numericAdventureId = adventureId.toLongOrNull() ?: return@withContext 0
-
-    return@withContext runCatching {
-        val allQuestions = supabaseClient.from("quiz_questions")
-            .select()
-            .decodeList<QuizQuestionEntity>()
-
-        val filteredCount = allQuestions.count { it.adventureId == numericAdventureId }
-        println("Quiz: Found $filteredCount questions for adventure $adventureId (numeric: $numericAdventureId)")
-        println("Quiz: Total questions in database: ${allQuestions.size}")
-        if (allQuestions.isNotEmpty()) {
-            println("Quiz: Sample questions: ${allQuestions.take(3).map { "${it.id}->${it.adventureId}" }}")
-        }
-
-        // Fallback: If no questions found in database but adventureId is numeric, still provide some feedback
-        if (filteredCount == 0 && allQuestions.isNotEmpty()) {
-            println("Quiz: WARNING - No questions found for this adventure! Check if adventure_id matches.")
-        }
-
-        filteredCount
-    }.onFailure { e ->
-        println("ERROR: Error fetching quiz question count for adventure $adventureId: ${e.message}")
-        e.printStackTrace()
-    }.getOrDefault(0)
-}
-
-@Suppress("unused")
-actual suspend fun getQuizQuestionByIndex(adventureId: String, index: Int): QuizQuestion? = withContext(Dispatchers.IO) {
-    val numericAdventureId = adventureId.toLongOrNull() ?: return@withContext null
-
-    return@withContext runCatching {
-        println("DEBUG: Loading quiz question at index $index for adventure $adventureId")
-        val question = supabaseClient.from("quiz_questions")
-            .select()
-            .decodeList<QuizQuestionEntity>()
-            .filter { it.adventureId == numericAdventureId }
-            .sortedBy { it.orderIndex }
-            .getOrNull(index) ?: return@runCatching null
-
-        println("DEBUG: Found question: $question")
-
-        val answers = supabaseClient.from("quiz_answers")
-            .select()
-            .decodeList<QuizAnswerEntity>()
-            .filter { it.questionId == question.id }
-            .sortedBy { it.answerOrder }
-            .map { it.toQuizAnswer() }
-
-        println("DEBUG: Found ${answers.size} answers for question ${question.id}")
-        question.toQuizQuestion(answers)
-    }.onFailure { e ->
-        println("ERROR: Error fetching quiz question at index $index for adventure $adventureId: ${e.message}")
-        e.printStackTrace()
-    }.getOrDefault(null)
 }
 
 @Suppress("unused")
@@ -333,9 +275,6 @@ actual suspend fun getQuizAnswers(questionId: Long): List<QuizAnswer> = withCont
             .filter { it.questionId == questionId }
             .sortedBy { it.answerOrder }
             .map { it.toQuizAnswer() }
-    }.onFailure { e ->
-        println("Error fetching quiz answers for question $questionId: ${e.message}")
-        e.printStackTrace()
     }.getOrDefault(emptyList())
 }
 
@@ -358,9 +297,6 @@ actual suspend fun submitQuizAnswer(attemptId: Long, questionId: Long, answerId:
             )
 
         answer.isCorrect
-    }.onFailure { e ->
-        println("Error submitting quiz answer: ${e.message}")
-        e.printStackTrace()
     }.getOrDefault(false)
 }
 
