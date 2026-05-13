@@ -22,9 +22,15 @@ expect suspend fun appendAdventureLocations(adventureId: String, locations: List
 
 expect suspend fun getQuizQuestions(adventureId: String): List<QuizQuestion>
 
+expect suspend fun getQuizQuestionCount(adventureId: String): Int
+
+expect suspend fun getQuizQuestionByIndex(adventureId: String, index: Int): QuizQuestion?
+
 expect suspend fun getQuizAnswers(questionId: Long): List<QuizAnswer>
 
 expect suspend fun submitQuizAnswer(attemptId: Long, questionId: Long, answerId: Long): Boolean
+
+expect suspend fun recordQuizAnswerEvaluation(event: QuizAnswerEvaluationEvent)
 
 // ============================================================================
 // AUTHENTICATION REPOSITORY FUNCTIONS

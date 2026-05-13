@@ -193,6 +193,7 @@ private data class ReachedAdventureTarget(
 fun App() {
     val appScope = rememberCoroutineScope()
     var currentUser by remember { mutableStateOf<User?>(null) }
+    var isSessionLoaded by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(BottomTab.Map) }
     var searchQuery by remember { mutableStateOf("") }
     var currentLocation by remember { mutableStateOf<GeoPoint?>(null) }
@@ -218,6 +219,11 @@ fun App() {
     var activeAdventureAttempt by remember { mutableStateOf<AdventureAttempt?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
+    LaunchedEffect(Unit) {
+        currentUser = getCurrentUser()
+        isSessionLoaded = true
+    }
+
     fun clearActiveAdventure() {
         routeTargets = emptyList()
         routedAdventureId = null
@@ -231,52 +237,83 @@ fun App() {
         showEndAdventureConfirmation = false
     }
 
-    LaunchedEffect(
-        currentLocation,
-        activeAdventureForOverlay?.id,
-        activeAdventureTargets,
-        currentAdventureTargetIndex,
-        reachedAdventureTarget,
-        isActiveAdventureComplete,
-    ) {
-        val location = currentLocation ?: return@LaunchedEffect
-        val adventure = activeAdventureForOverlay ?: return@LaunchedEffect
-        val target = activeAdventureTargets.getOrNull(currentAdventureTargetIndex) ?: return@LaunchedEffect
-
-        if (reachedAdventureTarget != null || isActiveAdventureComplete) {
-            return@LaunchedEffect
-        }
-
-        if (target.point.distanceTo(location) > START_ADVENTURE_MAX_DISTANCE_METERS) {
-            return@LaunchedEffect
-        }
-
-        val reachedCount = currentAdventureTargetIndex + 1
-        val totalCount = activeAdventureTargets.size
-        if (currentAdventureTargetIndex == activeAdventureTargets.lastIndex) {
-            routeTargets = emptyList()
-            routedAdventureId = null
-            activeAdventureForOverlay = null
-            activeAdventureTargets = emptyList()
-            currentAdventureTargetIndex = 0
-            reachedAdventureTarget = null
-            isAdventureOverlayExpanded = true
-            showEndAdventureConfirmation = false
-            activeAdventure = adventure
-            isActiveAdventureComplete = true
-        } else {
-            reachedAdventureTarget = ReachedAdventureTarget(
-                name = target.name,
-                reachedCount = reachedCount,
-                totalCount = totalCount,
-            )
-            currentAdventureTargetIndex = reachedCount
-            routeTargets = activeAdventureTargets.drop(reachedCount).map { it.point }
-        }
+    fun resetAuthenticatedUiState() {
+        clearActiveAdventure()
+        selectedTab = BottomTab.Map
+        searchQuery = ""
+        showCreateAdventureDialog = false
+        editingAdventure = null
+        adventurePendingDeletion = null
+        isDeletingAdventure = false
+        deleteErrorMessage = null
+        adventurePendingStart = null
+        isStartingAdventure = false
+        startErrorMessage = null
     }
 
+     LaunchedEffect(
+         currentLocation,
+         activeAdventureForOverlay?.id,
+         activeAdventureTargets,
+         currentAdventureTargetIndex,
+         reachedAdventureTarget,
+         isActiveAdventureComplete,
+     ) {
+         val location = currentLocation ?: return@LaunchedEffect
+         val adventure = activeAdventureForOverlay ?: return@LaunchedEffect
+         val target = activeAdventureTargets.getOrNull(currentAdventureTargetIndex) ?: return@LaunchedEffect
+
+         if (reachedAdventureTarget != null || isActiveAdventureComplete) {
+             return@LaunchedEffect
+         }
+
+         if (target.point.distanceTo(location) > START_ADVENTURE_MAX_DISTANCE_METERS) {
+             return@LaunchedEffect
+         }
+
+         val reachedCount = currentAdventureTargetIndex + 1
+         val totalCount = activeAdventureTargets.size
+         if (currentAdventureTargetIndex == activeAdventureTargets.lastIndex) {
+             routeTargets = emptyList()
+             routedAdventureId = null
+             activeAdventureForOverlay = null
+             activeAdventureTargets = emptyList()
+             currentAdventureTargetIndex = 0
+             reachedAdventureTarget = null
+             isAdventureOverlayExpanded = true
+             showEndAdventureConfirmation = false
+             activeAdventure = adventure
+             isActiveAdventureComplete = true
+          } else {
+              // Skip showing the popup for the starting point - go directly to the first waypoint
+              if (currentAdventureTargetIndex == 0) {
+                  currentAdventureTargetIndex = reachedCount
+                  routeTargets = activeAdventureTargets.drop(reachedCount).map { it.point }
+              } else {
+                  // Show waypoint reached popup for non-starting waypoints
+                  reachedAdventureTarget = ReachedAdventureTarget(
+                      name = target.name,
+                      reachedCount = reachedCount,
+                      totalCount = totalCount,
+                  )
+                  currentAdventureTargetIndex = reachedCount
+                  routeTargets = activeAdventureTargets.drop(reachedCount).map { it.point }
+
+                  // Activate the game screen so the player can see the quiz or next waypoint info
+                  activeAdventure = adventure
+              }
+          }
+     }
+
     MaterialTheme {
-        if (currentUser == null) {
+        if (!isSessionLoaded) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator()
+            }
+        } else if (currentUser == null) {
             // Show login/register screen if not authenticated
             AuthScreen(
                 onLoginSuccess = {
@@ -321,7 +358,8 @@ fun App() {
                         currentLocation = currentLocation,
                         initialAttempt = activeAdventureAttempt,
                         isAdventureComplete = isActiveAdventureComplete,
-                        onAdventureComplete = { points ->
+                        callbacks = AdventureGameCallbacks(
+                            onAdventureComplete = { points ->
                             appScope.launch {
                                 snackbarHostState.showSnackbar(
                                     message = "🎉 $points Punkte verdient!",
@@ -332,12 +370,13 @@ fun App() {
                             activeAdventureAttempt = null
                             isActiveAdventureComplete = false
                             adventureRefreshKey += 1
-                        },
-                        onClose = {
-                            activeAdventure = null
-                            activeAdventureAttempt = null
-                            isActiveAdventureComplete = false
-                        },
+                            },
+                            onClose = {
+                                activeAdventure = null
+                                activeAdventureAttempt = null
+                                isActiveAdventureComplete = false
+                            },
+                        ),
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(innerPadding),
@@ -435,7 +474,31 @@ fun App() {
                             }
                         }
 
-                        BottomTab.Right -> Box(modifier = Modifier.fillMaxSize())
+                        BottomTab.Right -> Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Text(
+                                    text = currentUser?.email.orEmpty(),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                Button(
+                                    onClick = {
+                                        appScope.launch {
+                                            logoutUser()
+                                            resetAuthenticatedUiState()
+                                            currentUser = null
+                                        }
+                                    },
+                                ) {
+                                    Text("Abmelden")
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -553,6 +616,7 @@ fun App() {
                                 isStartingAdventure = true
                                 startErrorMessage = null
                                 appScope.launch {
+                                    var adventureWithLocations = adventure
                                     if (!canStartAdventure(adventure.startPoint, currentLocation)) {
                                         startErrorMessage = "Du musst innerhalb von 10 m am Startpunkt sein."
                                         isStartingAdventure = false
@@ -568,12 +632,14 @@ fun App() {
                                             ?: throw IllegalStateException("Kein Benutzer angemeldet.")
                                         val attempt = getCurrentAttemptForAdventure(adventure.id, user.id)
                                             ?: startAdventureAttempt(adventure.id, user.id)
+                                        val sortedLocations = locations.sortedBy { it.orderIndex }
+                                        adventureWithLocations = adventure.copy(locations = sortedLocations)
                                         val targets = listOf(
                                             AdventureProgressTarget(
                                                 name = "Startpunkt",
                                                 point = adventure.startPoint,
                                             ),
-                                        ) + locations.sortedBy { it.orderIndex }.map { location ->
+                                        ) + sortedLocations.map { location ->
                                             AdventureProgressTarget(
                                                 name = location.name,
                                                 point = location.point,
@@ -581,7 +647,7 @@ fun App() {
                                         }
                                         routedAdventureId = adventure.id
                                         routeTargets = targets.map { it.point }
-                                        activeAdventureForOverlay = adventure
+                                        activeAdventureForOverlay = adventureWithLocations
                                         activeAdventureTargets = targets
                                         currentAdventureTargetIndex = 0
                                         reachedAdventureTarget = null
@@ -590,8 +656,8 @@ fun App() {
                                         isAdventureOverlayExpanded = true
                                         selectedTab = BottomTab.Map
                                     }.onSuccess {
-                                        // Activate the adventure so the game screen is shown
-                                        activeAdventure = adventure
+                                        // Don't show game screen immediately - show the map first
+                                        // The game screen will be activated when the first waypoint is reached or if there's an error
                                         adventurePendingStart = null
                                         snackbarHostState.showSnackbar("Abenteuer gestartet: ${adventure.title}")
                                     }.onFailure { throwable ->
@@ -1684,6 +1750,10 @@ private fun ActiveAdventureOverlay(
     val totalTargets = targets.size
     val reachedTargets = currentTargetIndex.coerceIn(0, totalTargets)
     val currentTarget = targets.getOrNull(currentTargetIndex)
+    val currentTargetDistance = currentTarget?.point?.let { targetPoint ->
+        currentLocation?.distanceTo(targetPoint)
+    }
+    val canOpenProximityFeature = currentTarget != null && currentTargetDistance != null && currentTargetDistance < 40.0
 
     Card(
         modifier = modifier,
@@ -1717,6 +1787,15 @@ private fun ActiveAdventureOverlay(
                 TextButton(onClick = onToggleExpanded) {
                     Text(if (isExpanded) "Ausblenden" else "Einblenden")
                 }
+            }
+
+            if (canOpenProximityFeature && currentTarget != null) {
+                ProximityAlertPopup(
+                    currentLocation = currentLocation,
+                    targetLocation = currentTarget.point,
+                    isVisible = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
 
             AnimatedVisibility(

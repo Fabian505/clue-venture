@@ -1,8 +1,49 @@
 package de.clueventure.clue_venture
 
+import android.content.Context
 import io.github.jan.supabase.postgrest.from
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+
+internal object AndroidSessionStorage {
+    lateinit var context: Context
+}
+
+private const val SESSION_PREFS_NAME = "clue_venture_session"
+private const val CURRENT_USER_KEY = "current_user"
+
+private val sessionJson = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+}
+
+private fun saveCurrentUser(user: User) {
+    AndroidSessionStorage.context
+        .getSharedPreferences(SESSION_PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putString(CURRENT_USER_KEY, sessionJson.encodeToString(User.serializer(), user))
+        .apply()
+}
+
+private fun loadCurrentUser(): User? {
+    val storedUser = AndroidSessionStorage.context
+        .getSharedPreferences(SESSION_PREFS_NAME, Context.MODE_PRIVATE)
+        .getString(CURRENT_USER_KEY, null)
+        ?: return null
+
+    return runCatching {
+        sessionJson.decodeFromString(User.serializer(), storedUser)
+    }.getOrNull()
+}
+
+private fun clearCurrentUser() {
+    AndroidSessionStorage.context
+        .getSharedPreferences(SESSION_PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .remove(CURRENT_USER_KEY)
+        .apply()
+}
 
 actual suspend fun getAdventures(): List<Adventure> = withContext(Dispatchers.IO) {
     supabaseClient.from("adventures")
@@ -203,49 +244,111 @@ actual suspend fun appendAdventureLocations(
 actual suspend fun getQuizQuestions(adventureId: String): List<QuizQuestion> = withContext(Dispatchers.IO) {
     val numericAdventureId = adventureId.toLongOrNull() ?: return@withContext emptyList()
 
-    try {
+    return@withContext runCatching {
         val questions = supabaseClient.from("quiz_questions")
             .select()
             .decodeList<QuizQuestionEntity>()
             .filter { it.adventureId == numericAdventureId }
             .sortedBy { it.orderIndex }
 
-        questions.map { questionEntity ->
-            val answers = supabaseClient.from("quiz_answers")
-                .select()
-                .decodeList<QuizAnswerEntity>()
-                .filter { it.questionId == questionEntity.id }
-                .sortedBy { it.answerOrder }
-                .map { it.toQuizAnswer() }
-
-            questionEntity.toQuizQuestion(answers)
+        if (questions.isEmpty()) {
+            return@runCatching emptyList()
         }
-    } catch (e: Exception) {
-        println("Error fetching quiz questions: ${e.message}")
-        emptyList()
-    }
+
+        val questionIds = questions.map { it.id }
+        val answers = supabaseClient.from("quiz_answers")
+            .select()
+            .decodeList<QuizAnswerEntity>()
+            .filter { it.questionId in questionIds }
+            .sortedBy { it.answerOrder }
+
+        val answersByQuestionId = answers.groupBy { it.questionId }
+            .mapValues { (_, answerEntities) ->
+                answerEntities.map { it.toQuizAnswer() }
+            }
+
+        questions.map { questionEntity ->
+            questionEntity.toQuizQuestion(answersByQuestionId[questionEntity.id].orEmpty())
+        }
+    }.onFailure { e ->
+        println("Error fetching quiz questions for adventure $adventureId: ${e.message}")
+        e.printStackTrace()
+    }.getOrDefault(emptyList())
 }
 
 actual suspend fun getQuizAnswers(questionId: Long): List<QuizAnswer> = withContext(Dispatchers.IO) {
-    try {
+    return@withContext runCatching {
         supabaseClient.from("quiz_answers")
             .select()
             .decodeList<QuizAnswerEntity>()
             .filter { it.questionId == questionId }
             .sortedBy { it.answerOrder }
             .map { it.toQuizAnswer() }
-    } catch (e: Exception) {
-        println("Error fetching quiz answers: ${e.message}")
-        emptyList()
-    }
+    }.onFailure { e ->
+        println("Error fetching quiz answers for question $questionId: ${e.message}")
+        e.printStackTrace()
+    }.getOrDefault(emptyList())
+}
+
+actual suspend fun getQuizQuestionCount(adventureId: String): Int = withContext(Dispatchers.IO) {
+    return@withContext runCatching {
+        val allQuestions = supabaseClient.from("quiz_questions")
+            .select()
+            .decodeList<QuizQuestionEntity>()
+
+        val filteredCount = allQuestions.count { it.adventureId == adventureId.toLongOrNull() }
+        println("Quiz: Found $filteredCount questions for adventure $adventureId")
+        println("Quiz: Total questions in database: ${allQuestions.size}")
+        if (allQuestions.isNotEmpty()) {
+            println("Quiz: Sample questions: ${allQuestions.take(3).map { "${it.id}->${it.adventureId}" }}")
+        }
+
+        if (filteredCount == 0 && allQuestions.isNotEmpty()) {
+            println("Quiz: WARNING - No questions found for this adventure! Check if adventure_id matches.")
+        }
+
+        filteredCount
+    }.onFailure { e ->
+        println("ERROR: Error fetching quiz question count for adventure $adventureId: ${e.message}")
+        e.printStackTrace()
+    }.getOrDefault(0)
+}
+
+actual suspend fun getQuizQuestionByIndex(adventureId: String, index: Int): QuizQuestion? = withContext(Dispatchers.IO) {
+    val numericAdventureId = adventureId.toLongOrNull() ?: return@withContext null
+
+    return@withContext runCatching {
+        println("DEBUG: Loading quiz question at index $index for adventure $adventureId")
+        val question = supabaseClient.from("quiz_questions")
+            .select()
+            .decodeList<QuizQuestionEntity>()
+            .filter { it.adventureId == numericAdventureId }
+            .sortedBy { it.orderIndex }
+            .getOrNull(index) ?: return@runCatching null
+
+        println("DEBUG: Found question: $question")
+
+        val answers = supabaseClient.from("quiz_answers")
+            .select()
+            .decodeList<QuizAnswerEntity>()
+            .filter { it.questionId == question.id }
+            .sortedBy { it.answerOrder }
+            .map { it.toQuizAnswer() }
+
+        println("DEBUG: Found ${answers.size} answers for question ${question.id}")
+        question.toQuizQuestion(answers)
+    }.onFailure { e ->
+        println("ERROR: Error fetching quiz question at index $index for adventure $adventureId: ${e.message}")
+        e.printStackTrace()
+    }.getOrDefault(null)
 }
 
 actual suspend fun submitQuizAnswer(attemptId: Long, questionId: Long, answerId: Long): Boolean = withContext(Dispatchers.IO) {
-    try {
+    return@withContext runCatching {
         val answer = supabaseClient.from("quiz_answers")
             .select()
             .decodeList<QuizAnswerEntity>()
-            .find { it.id == answerId } ?: return@withContext false
+            .find { it.id == answerId } ?: return@runCatching false
 
         supabaseClient.from("user_answers")
             .insert(
@@ -258,10 +361,20 @@ actual suspend fun submitQuizAnswer(attemptId: Long, questionId: Long, answerId:
             )
 
         answer.isCorrect
-    } catch (e: Exception) {
+    }.onFailure { e ->
         println("Error submitting quiz answer: ${e.message}")
-        false
+        e.printStackTrace()
+    }.getOrDefault(false)
+}
+
+actual suspend fun recordQuizAnswerEvaluation(event: QuizAnswerEvaluationEvent): Unit = withContext(Dispatchers.IO) {
+    if (event.attemptId == null) {
+        return@withContext
     }
+
+    println(
+        "Quiz answer evaluated: attempt=${event.attemptId}, question=${event.questionId}, answer=${event.answerId}, correct=${event.isCorrect}",
+    )
 }
 
 // ============================================================================
@@ -277,7 +390,7 @@ actual suspend fun authenticateUser(email: String, password: String): User? = wi
             .decodeList<UserEntity>()
             .find { it.email == email }
 
-        user?.toUser()
+        user?.toUser()?.also { saveCurrentUser(it) }
     } catch (e: Exception) {
         println("Error authenticating user: ${e.message}")
         null
@@ -309,7 +422,7 @@ actual suspend fun registerUser(email: String, password: String, username: Strin
         supabaseClient.from("user_profiles")
             .insert(profileInsert)
 
-        insertedUser.toUser()
+        insertedUser.toUser().also { saveCurrentUser(it) }
     } catch (e: Exception) {
         println("Error registering user: ${e.message}")
         throw e
@@ -317,13 +430,11 @@ actual suspend fun registerUser(email: String, password: String, username: Strin
 }
 
 actual suspend fun getCurrentUser(): User? = withContext(Dispatchers.IO) {
-    // This would typically retrieve from Supabase Auth session
-    // Placeholder implementation
-    return@withContext null
+    loadCurrentUser()
 }
 
 actual suspend fun logoutUser(): Unit = withContext(Dispatchers.IO) {
-    // This would typically clear Supabase Auth session
+    clearCurrentUser()
     Unit
 }
 
