@@ -16,6 +16,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         AndroidSessionStorage.context = applicationContext
+        initializeLocationService(applicationContext)
 
         hideSystemBars()
 

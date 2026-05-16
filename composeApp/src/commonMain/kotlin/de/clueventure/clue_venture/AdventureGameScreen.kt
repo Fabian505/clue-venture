@@ -223,6 +223,7 @@ fun AdventureGameScreen(
         }
 
         distanceToWaypoint = location.distanceTo(waypointPoint)
+        currentRouteDistanceMeters = distanceToWaypoint
     }
 
     // Handle waypoint reached
@@ -381,7 +382,6 @@ fun AdventureGameScreen(
                     Box(modifier = Modifier.fillMaxSize()) {
                         PlatformMap(
                             modifier = Modifier.fillMaxSize(),
-                            routeTargets = currentWaypoint?.point?.let { listOf(it) }.orEmpty(),
                             onCurrentLocationChanged = { location ->
                                 val updatedLocation = location?.let {
                                     GeoPointState(
@@ -394,6 +394,7 @@ fun AdventureGameScreen(
                                 location?.let { currentLocation ->
                                     currentWaypoint?.point?.let { waypointPoint ->
                                         distanceToWaypoint = currentLocation.distanceTo(waypointPoint)
+                                        currentRouteDistanceMeters = distanceToWaypoint
                                     }
                                 }
 
@@ -434,9 +435,6 @@ fun AdventureGameScreen(
                                     }
                                 }
                             },
-                            onRouteDistanceChanged = { routeDistance ->
-                                currentRouteDistanceMeters = routeDistance
-                            },
                         )
 
                         Column(
@@ -470,7 +468,6 @@ fun AdventureGameScreen(
                     Box(modifier = Modifier.fillMaxSize()) {
                         PlatformMap(
                             modifier = Modifier.fillMaxSize(),
-                            routeTargets = currentWaypoint?.point?.let { listOf(it) }.orEmpty(),
                             onCurrentLocationChanged = { location ->
                                 val updatedLocation = location?.let {
                                     GeoPointState(
@@ -483,6 +480,7 @@ fun AdventureGameScreen(
                                 location?.let { currentLocation ->
                                     currentWaypoint?.point?.let { waypointPoint ->
                                         distanceToWaypoint = currentLocation.distanceTo(waypointPoint)
+                                        currentRouteDistanceMeters = distanceToWaypoint
                                     }
                                 }
                             },
@@ -490,9 +488,6 @@ fun AdventureGameScreen(
                             questionCount = availableQuestionCount,
                             onQuestionsClicked = {
                                 // Quiz popup is already open here; ignore additional taps.
-                            },
-                            onRouteDistanceChanged = { routeDistance ->
-                                currentRouteDistanceMeters = routeDistance
                             },
                         )
 

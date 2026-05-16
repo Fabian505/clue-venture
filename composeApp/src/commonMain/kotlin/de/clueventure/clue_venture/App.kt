@@ -33,6 +33,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -195,11 +196,37 @@ fun App() {
         isSessionLoaded = true
     }
 
+    DisposableEffect(currentUser?.id, activeAdventure?.id) {
+        if (currentUser == null || activeAdventure != null) {
+            return@DisposableEffect onDispose { }
+        }
+
+        val locationService = runCatching { getLocationService() }.getOrNull()
+            ?: return@DisposableEffect onDispose { }
+
+        appScope.launch {
+            locationService.startLocationTracking(interval = 5000) { location ->
+                currentLocation = location.point
+            }
+        }
+
+        onDispose {
+            appScope.launch {
+                locationService.stopLocationTracking()
+            }
+        }
+    }
+
     fun clearActiveAdventure() {
         routeTargets = emptyList()
         routedAdventureId = null
         activeAdventure = null
         activeAdventureAttempt = null
+    }
+
+    fun clearStartRoute() {
+        routeTargets = emptyList()
+        routedAdventureId = null
     }
 
     fun resetAuthenticatedUiState() {
@@ -248,7 +275,12 @@ fun App() {
                             BottomTab.entries.forEach { tab ->
                                 NavigationBarItem(
                                     selected = selectedTab == tab,
-                                    onClick = { selectedTab = tab },
+                                    onClick = {
+                                        if (selectedTab == BottomTab.Map && tab != BottomTab.Map && activeAdventure == null) {
+                                            clearStartRoute()
+                                        }
+                                        selectedTab = tab
+                                    },
                                     icon = {
                                         Icon(
                                             imageVector = tab.icon,
