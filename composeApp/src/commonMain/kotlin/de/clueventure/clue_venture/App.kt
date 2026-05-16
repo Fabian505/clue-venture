@@ -279,6 +279,7 @@ fun App() {
                                 appScope.launch {
                                     snackbarHostState.showSnackbar(
                                         message = "🎉 $points Punkte verdient!",
+                                        withDismissAction = true,
                                         duration = androidx.compose.material3.SnackbarDuration.Long,
                                     )
                                 }
@@ -525,7 +526,10 @@ fun App() {
                                         selectedTab = BottomTab.Map
                                     }.onSuccess {
                                         adventurePendingStart = null
-                                        snackbarHostState.showSnackbar("Abenteuer gestartet: ${adventure.title}")
+                                        snackbarHostState.showSnackbar(
+                                            message = "Abenteuer gestartet: ${adventure.title}",
+                                            withDismissAction = true,
+                                        )
                                     }.onFailure { throwable ->
                                         startErrorMessage =
                                             throwable.message ?: "Abenteuer konnte nicht gestartet werden."

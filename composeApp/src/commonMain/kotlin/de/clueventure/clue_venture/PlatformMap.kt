@@ -11,6 +11,7 @@ expect fun PlatformMap(
 	enablePointSelection: Boolean = false,
 	selectedPoint: GeoPoint? = null,
 	onMapPointSelected: (GeoPoint) -> Unit = {},
+	showQuestionsButton: Boolean = false,
 	questionCount: Int = 0,
 	onQuestionsClicked: () -> Unit = {},
 	onRouteDistanceChanged: (Double?) -> Unit = {},

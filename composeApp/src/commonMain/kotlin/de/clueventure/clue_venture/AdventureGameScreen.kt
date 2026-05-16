@@ -335,6 +335,7 @@ fun AdventureGameScreen(
                                     }
                                 }
                             },
+                            showQuestionsButton = true,
                             questionCount = availableQuestionCount,
                             onQuestionsClicked = {
                                 if (showQuizSheet || availableQuestionCount <= 0) {
@@ -417,6 +418,7 @@ fun AdventureGameScreen(
                                     }
                                 }
                             },
+                            showQuestionsButton = true,
                             questionCount = availableQuestionCount,
                             onQuestionsClicked = {
                                 // Quiz popup is already open here; ignore additional taps.

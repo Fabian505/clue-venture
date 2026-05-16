@@ -11,6 +11,7 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Looper
+import android.view.Gravity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -38,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -91,12 +93,15 @@ actual fun PlatformMap(
     enablePointSelection: Boolean,
     selectedPoint: GeoPoint?,
     onMapPointSelected: (GeoPoint) -> Unit,
+    showQuestionsButton: Boolean,
     questionCount: Int,
     onQuestionsClicked: () -> Unit,
     onRouteDistanceChanged: (Double?) -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val density = LocalDensity.current
+    val compassMarginPx = with(density) { 16.dp.roundToPx() }
 
     var mapLibreMap by remember { mutableStateOf<MapLibreMap?>(null) }
     var hasLocationPermission by remember { mutableStateOf(hasLocationPermission(context)) }
@@ -120,13 +125,18 @@ actual fun PlatformMap(
         openLocationSettings(context)
     }
 
-    val mapView = remember {
+    val mapView = remember(compassMarginPx) {
         MapLibre.getInstance(context)
         MapView(context).apply {
             onCreate(null)
             getMapAsync { map ->
                 mapLibreMap = map
                 map.setMaxZoomPreference(MAX_MAP_ZOOM)
+                map.uiSettings.isAttributionEnabled = false
+                map.uiSettings.isLogoEnabled = false
+                map.uiSettings.setCompassFadeFacingNorth(false)
+                map.uiSettings.compassGravity = Gravity.BOTTOM or Gravity.START
+                map.uiSettings.setCompassMargins(compassMarginPx, 0, 0, compassMarginPx)
                 map.setStyle("asset://style.json") { style ->
                     ensureLocationLayer(style)
                     ensureRouteLayers(style)
@@ -339,21 +349,23 @@ actual fun PlatformMap(
                 .align(Alignment.BottomEnd)
                 .padding(16.dp),
         ) {
-            Surface(
-                shape = CircleShape,
-                tonalElevation = 4.dp,
-                shadowElevation = 6.dp,
-            ) {
-                TextButton(
-                    onClick = onQuestionsClicked,
-                    enabled = questionCount > 0,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            if (showQuestionsButton) {
+                Surface(
+                    shape = CircleShape,
+                    tonalElevation = 4.dp,
+                    shadowElevation = 6.dp,
                 ) {
-                    Text(if (questionCount > 0) "Fragen: $questionCount" else "Keine Fragen")
+                    TextButton(
+                        onClick = onQuestionsClicked,
+                        enabled = questionCount > 0,
+                        modifier = Modifier.size(width = 112.dp, height = 48.dp),
+                    ) {
+                        Text(if (questionCount > 0) "Fragen: $questionCount" else "Keine Fragen")
+                    }
                 }
-            }
 
-            Box(modifier = Modifier.size(12.dp))
+                Box(modifier = Modifier.size(12.dp))
+            }
 
             Surface(
                 shape = CircleShape,
