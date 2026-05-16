@@ -455,12 +455,6 @@ fun AdventureGameScreen(
                                 )
                             }
 
-                            Text(
-                                text = "Fortschritt: ${currentCheckpointIndex + 1}/${adventure.locations.size}",
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-
                             ProximityAlertPopup(
                                 currentLocation = currentLocationState?.point,
                                 targetLocation = currentWaypoint?.point ?: GeoPoint(0.0, 0.0),
