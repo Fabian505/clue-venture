@@ -700,6 +700,7 @@ fun AdventureGameScreen(
                                         feedbackError =
                                             "Feedback konnte nicht gespeichert werden. Bitte versuche es erneut."
                                         println("Error submitting feedback: ${e.message}")
+                                        e.printStackTrace()
                                     } finally {
                                         isSubmittingFeedback = false
                                     }

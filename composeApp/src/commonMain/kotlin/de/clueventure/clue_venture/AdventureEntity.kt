@@ -173,6 +173,7 @@ data class AdventureAttemptInsertEntity(
 @Serializable
 data class AdventureAttemptFinishEntity(
     @SerialName("is_completed") val isCompleted: Boolean = true,
+    @SerialName("completed_at") val completedAt: String,
     @SerialName("time_spent_seconds") val timeSpentSeconds: Int,
     @SerialName("points_earned") val pointsEarned: Int,
 )
@@ -224,6 +225,14 @@ data class AdventureFeedbackInsertEntity(
     @SerialName("difficulty_rating") val difficultyRating: Int,
     @SerialName("overall_rating") val overallRating: Int,
     @SerialName("custom_feedback") val customFeedback: String?,
+)
+
+@Serializable
+data class AdventureFeedbackUpdateEntity(
+    @SerialName("difficulty_rating") val difficultyRating: Int,
+    @SerialName("overall_rating") val overallRating: Int,
+    @SerialName("custom_feedback") val customFeedback: String?,
+    @SerialName("updated_at") val updatedAt: String,
 )
 
 fun AdventureEntity.toAdventure(): Adventure = Adventure(

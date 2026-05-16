@@ -28,10 +28,10 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -1753,18 +1753,22 @@ private fun AdventureCard(
                     onClick = onNavigateToStart,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("Zum Startpunkt")
+                    Text("Startpunkt")
                 }
                 Button(
                     onClick = onStartAdventure,
                     enabled = canStart,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("Abenteuer starten")
+                    Text("Starten")
                 }
                 Box {
-                    IconButton(onClick = { showActionsMenu = true }) {
-                        Text("...")
+                    OutlinedButton(
+                        onClick = { showActionsMenu = true },
+                        modifier = Modifier.size(width = 56.dp, height = 40.dp),
+                        contentPadding = PaddingValues(0.dp),
+                    ) {
+                        Text("•••")
                     }
                     DropdownMenu(
                         expanded = showActionsMenu,

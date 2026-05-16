@@ -5,6 +5,7 @@ import io.github.jan.supabase.postgrest.from
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import java.time.Instant
 
 internal object AndroidSessionStorage {
     lateinit var context: Context
@@ -511,6 +512,7 @@ actual suspend fun finishAdventureAttempt(attemptId: Long): Int = withContext(Di
             .update(
                 AdventureAttemptFinishEntity(
                     isCompleted = true,
+                    completedAt = Instant.now().toString(),
                     timeSpentSeconds = timeSpentSeconds,
                     pointsEarned = pointsEarned,
                 ),
@@ -618,23 +620,46 @@ actual suspend fun submitAdventureFeedback(draft: AdventureFeedbackDraft): Adven
         val numericAdventureId = draft.adventureId.toLongOrNull()
             ?: throw IllegalArgumentException("Invalid adventure id: ${draft.adventureId}")
 
-        supabaseClient.from("adventure_feedback")
-            .insert(
-                AdventureFeedbackInsertEntity(
-                    attemptId = draft.attemptId,
-                    adventureId = numericAdventureId,
-                    userId = draft.userId,
-                    difficultyRating = draft.difficultyRating,
-                    overallRating = draft.overallRating,
-                    customFeedback = draft.customFeedback,
-                ),
-            ) {
-                select()
-            }
-            .decodeSingle<AdventureFeedbackEntity>()
-            .toAdventureFeedback()
+        val existingFeedback = supabaseClient.from("adventure_feedback")
+            .select()
+            .decodeList<AdventureFeedbackEntity>()
+            .find { it.attemptId == draft.attemptId }
+
+        if (existingFeedback != null) {
+            supabaseClient.from("adventure_feedback")
+                .update(
+                    AdventureFeedbackUpdateEntity(
+                        difficultyRating = draft.difficultyRating,
+                        overallRating = draft.overallRating,
+                        customFeedback = draft.customFeedback,
+                        updatedAt = Instant.now().toString(),
+                    ),
+                ) {
+                    filter { eq("id", existingFeedback.id) }
+                    select()
+                }
+                .decodeSingle<AdventureFeedbackEntity>()
+                .toAdventureFeedback()
+        } else {
+            supabaseClient.from("adventure_feedback")
+                .insert(
+                    AdventureFeedbackInsertEntity(
+                        attemptId = draft.attemptId,
+                        adventureId = numericAdventureId,
+                        userId = draft.userId,
+                        difficultyRating = draft.difficultyRating,
+                        overallRating = draft.overallRating,
+                        customFeedback = draft.customFeedback,
+                    ),
+                ) {
+                    select()
+                }
+                .decodeSingle<AdventureFeedbackEntity>()
+                .toAdventureFeedback()
+        }
     } catch (e: Exception) {
         println("Error submitting adventure feedback: ${e.message}")
+        e.printStackTrace()
         throw e
     }
 }
