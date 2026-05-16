@@ -11,6 +11,7 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Looper
+import android.util.Log
 import android.view.Gravity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -49,7 +50,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
@@ -83,6 +86,7 @@ private const val ROUTE_TARGET_SOURCE_ID = "adventure-route-target-source"
 private const val ROUTE_TARGET_LAYER_ID = "adventure-route-target-layer"
 private const val PICKER_SOURCE_ID = "map-picker-source"
 private const val PICKER_LAYER_ID = "map-picker-layer"
+private const val OSRM_LOG_TAG = "ClueVentureOSRM"
 
 @Composable
 @Suppress("CognitiveComplexity")
@@ -189,10 +193,13 @@ actual fun PlatformMap(
             return@LaunchedEffect
         }
 
+        val fallbackRoutePoints = listOf(currentLocation, routeTargets.first())
         val fetchedRoutePoints = fetchRoutePoints(listOf(currentLocation) + routeTargets)
-        routePoints = fetchedRoutePoints
+        val visibleRoutePoints = fetchedRoutePoints.ifEmpty { fallbackRoutePoints }
+        routePoints = visibleRoutePoints
         val fallbackDistance = currentLocation.distanceTo(routeTargets.first())
-        onRouteDistanceChanged(fetchedRoutePoints.routeDistanceMeters() ?: fallbackDistance)
+        onRouteDistanceChanged(visibleRoutePoints.routeDistanceMeters() ?: fallbackDistance)
+        mapLibreMap?.let { map -> fitMapToRoute(map, visibleRoutePoints) }
     }
 
     DisposableEffect(hasLocationPermission, mapLibreMap) {
@@ -453,6 +460,26 @@ private fun moveCameraToLocation(map: MapLibreMap, location: Location) {
         .build()
 }
 
+private fun fitMapToRoute(map: MapLibreMap, routePoints: List<GeoPoint>) {
+    if (routePoints.isEmpty()) {
+        return
+    }
+
+    if (routePoints.size == 1) {
+        map.cameraPosition = CameraPosition.Builder()
+            .target(LatLng(routePoints.first().latitude, routePoints.first().longitude))
+            .zoom(INITIAL_MAP_ZOOM)
+            .build()
+        return
+    }
+
+    val boundsBuilder = LatLngBounds.Builder()
+    routePoints.forEach { point ->
+        boundsBuilder.include(LatLng(point.latitude, point.longitude))
+    }
+    map.animateCamera(CameraUpdateFactory.newLatLngBounds(boundsBuilder.build(), 96))
+}
+
 private fun Location.toGeoPoint(): GeoPoint {
     return GeoPoint(
         latitude = latitude,
@@ -588,23 +615,38 @@ private suspend fun fetchRoutePoints(waypoints: List<GeoPoint>): List<GeoPoint> 
 
     return withContext(Dispatchers.IO) {
         runCatching {
-            val connection = URL(buildRouteUrl(waypoints)).openConnection() as HttpURLConnection
+            val routeUrl = buildRouteUrl(waypoints)
+            Log.d(OSRM_LOG_TAG, "Requesting route: $routeUrl")
+
+            val connection = URL(routeUrl).openConnection() as HttpURLConnection
             try {
                 connection.connectTimeout = 10_000
                 connection.readTimeout = 10_000
                 connection.requestMethod = "GET"
                 connection.setRequestProperty("Accept", "application/json")
+                connection.setRequestProperty(
+                    "User-Agent",
+                    "ClueVenture/1.0 (Android; ClueVenture Team - Educational Project)",
+                )
 
-                val responseText = if (connection.responseCode in 200..299) {
+                val responseCode = connection.responseCode
+                val responseText = if (responseCode in 200..299) {
                     connection.inputStream.bufferedReader().use { it.readText() }
                 } else {
                     connection.errorStream?.bufferedReader().use { it?.readText().orEmpty() }
                 }
 
-                parseRoutePoints(responseText)
+                Log.d(OSRM_LOG_TAG, "Response code: $responseCode")
+                Log.d(OSRM_LOG_TAG, "Response body: ${responseText.take(500)}")
+
+                parseRoutePoints(responseText).also { routePoints ->
+                    Log.d(OSRM_LOG_TAG, "Parsed route points: ${routePoints.size}")
+                }
             } finally {
                 connection.disconnect()
             }
+        }.onFailure { throwable ->
+            Log.e(OSRM_LOG_TAG, "Route request failed", throwable)
         }.getOrDefault(emptyList())
     }
 }
@@ -617,11 +659,27 @@ private fun buildRouteUrl(waypoints: List<GeoPoint>): String {
 }
 
 private fun parseRoutePoints(responseText: String): List<GeoPoint> {
-    if (responseText.isBlank()) return emptyList()
+    if (responseText.isBlank()) {
+        Log.w(OSRM_LOG_TAG, "OSRM response is blank")
+        return emptyList()
+    }
 
     val root = JSONObject(responseText)
-    val routes = root.optJSONArray("routes") ?: return emptyList()
-    if (routes.length() == 0) return emptyList()
+    val code = root.optString("code")
+    val message = root.optString("message")
+    if (code.isNotBlank() && code != "Ok") {
+        Log.w(OSRM_LOG_TAG, "OSRM returned code=$code message=$message")
+    }
+
+    val routes = root.optJSONArray("routes")
+    if (routes == null) {
+        Log.w(OSRM_LOG_TAG, "OSRM response contains no routes array")
+        return emptyList()
+    }
+    if (routes.length() == 0) {
+        Log.w(OSRM_LOG_TAG, "OSRM response contains an empty routes array")
+        return emptyList()
+    }
 
     val coordinates = routes.getJSONObject(0)
         .getJSONObject("geometry")
