@@ -93,11 +93,11 @@ fun GeoPoint.proximityStatus(targetPoint: GeoPoint, maxRangeMeters: Double = 50.
 }
 
 fun ProximityStatus.getDisplayText(): String = when (this) {
-    ProximityStatus.VERY_HOT -> "Sehr heiß!"
+    ProximityStatus.VERY_HOT -> "Sehr Heiß!"
     ProximityStatus.HOT -> "Heiß!"
-    ProximityStatus.WARM -> "Wärmer werdend"
-    ProximityStatus.COLD -> "Kälter werdend"
-    ProximityStatus.VERY_COLD -> "Sehr kalt"
+    ProximityStatus.WARM -> "Warm!"
+    ProximityStatus.COLD -> "Kalt!"
+    ProximityStatus.VERY_COLD -> "Sehr Kalt!"
     ProximityStatus.UNREACHABLE -> "Keine Position"
 }
 

@@ -15,10 +15,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -36,10 +39,42 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+
+private val CloseIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "Close",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f,
+    ).apply {
+        path(fill = SolidColor(Color.Black)) {
+            moveTo(18.3f, 5.71f)
+            lineTo(12f, 12f)
+            lineTo(18.3f, 18.29f)
+            lineTo(16.89f, 19.7f)
+            lineTo(10.59f, 13.41f)
+            lineTo(4.29f, 19.71f)
+            lineTo(2.88f, 18.3f)
+            lineTo(9.17f, 12f)
+            lineTo(2.88f, 5.7f)
+            lineTo(4.29f, 4.29f)
+            lineTo(10.59f, 10.59f)
+            lineTo(16.89f, 4.3f)
+            close()
+        }
+    }.build()
+}
+
+private const val PROXIMITY_ALERT_MAX_DISTANCE_METERS = 50.0
+private const val WAYPOINT_REACHED_DISTANCE_METERS = 5.0
 
 /**
  * Main Adventure Game Screen - orchestrates the complete adventure experience
@@ -99,10 +134,15 @@ fun AdventureGameScreen(
     var feedbackError by remember { mutableStateOf<String?>(null) }
     var attemptError by remember { mutableStateOf<String?>(null) }
     var finishError by remember { mutableStateOf<String?>(null) }
+    var showCloseConfirmation by remember { mutableStateOf(false) }
 
     val currentWaypoint = adventureLocations.getOrNull(currentCheckpointIndex)
-    val isProximityAlertVisible = currentLocationState != null && currentWaypoint != null && distanceToWaypoint < 30.0
-    val isWaypointReached = currentLocationState != null && currentWaypoint != null && distanceToWaypoint < 5.0
+    val isProximityAlertVisible = currentLocationState != null &&
+        currentWaypoint != null &&
+        distanceToWaypoint <= PROXIMITY_ALERT_MAX_DISTANCE_METERS
+    val isWaypointReached = currentLocationState != null &&
+        currentWaypoint != null &&
+        distanceToWaypoint < WAYPOINT_REACHED_DISTANCE_METERS
     val availableQuestionCount = remember(totalQuizQuestionCount, unlockedQuestionSlots, answeredQuestionIds) {
         calculateAvailableQuestionCount(
             totalQuestions = totalQuizQuestionCount,
@@ -110,6 +150,7 @@ fun AdventureGameScreen(
             answeredQuestionCount = answeredQuestionIds.size,
         )
     }
+    val quizPointsEarned = correctAnswerCount * 100
 
     // Initialize adventure attempt
     LaunchedEffect(adventure.id) {
@@ -271,21 +312,52 @@ fun AdventureGameScreen(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Button(
+                IconButton(
                     onClick = {
                         if (gameState == GameState.Complete && hasFinishedAttempt) {
                             callbacks.onAdventureComplete(pointsEarned)
                         } else {
-                            callbacks.onClose()
+                            showCloseConfirmation = true
                         }
                     },
                 ) {
-                    Text("Schließen")
+                    Icon(
+                        imageVector = CloseIcon,
+                        contentDescription = "Abenteuer schließen",
+                    )
                 }
             }
         },
         modifier = modifier,
     ) { contentPadding ->
+        if (showCloseConfirmation) {
+            AlertDialog(
+                onDismissRequest = { showCloseConfirmation = false },
+                title = { Text("Abenteuer beenden?") },
+                text = {
+                    Text(
+                        "Du hast dieses Abenteuer noch nicht abgeschlossen. " +
+                            "Wenn du es jetzt beendest, wird dein aktueller Durchlauf geschlossen.",
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showCloseConfirmation = false
+                            callbacks.onClose()
+                        },
+                    ) {
+                        Text("Beenden")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showCloseConfirmation = false }) {
+                        Text("Weiter spielen")
+                    }
+                },
+            )
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -378,6 +450,7 @@ fun AdventureGameScreen(
                                     currentLocation = currentLocationState?.point,
                                     targetLocation = waypoint.point,
                                     targetName = waypoint.name,
+                                    quizPointsEarned = quizPointsEarned,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                             }
@@ -392,6 +465,7 @@ fun AdventureGameScreen(
                                 currentLocation = currentLocationState?.point,
                                 targetLocation = currentWaypoint?.point ?: GeoPoint(0.0, 0.0),
                                 isVisible = isProximityAlertVisible,
+                                distanceMeters = distanceToWaypoint,
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -732,6 +806,7 @@ private fun NavigationIndicator(
     currentLocation: GeoPoint?,
     targetLocation: GeoPoint,
     targetName: String,
+    quizPointsEarned: Int,
     modifier: Modifier = Modifier,
 ) {
     val distanceText = currentLocation?.distanceTo(targetLocation)?.let { distanceMeters ->
@@ -768,6 +843,11 @@ private fun NavigationIndicator(
                 text = distanceText,
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "Quiz-Punkte: $quizPointsEarned",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.primary,
             )
         }
     }

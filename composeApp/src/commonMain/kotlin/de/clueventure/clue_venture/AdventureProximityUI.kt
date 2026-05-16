@@ -162,7 +162,7 @@ fun ProximityFeatureScreen(
             )
 
             Text(
-                text = "Diese Ansicht ist verfügbar, wenn du weniger als 40 m vom aktuellen Ziel entfernt bist.",
+                text = "Diese Ansicht ist verfügbar, wenn du weniger als 50 m vom aktuellen Ziel entfernt bist.",
                 fontSize = 14.sp,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -183,4 +183,3 @@ private fun proximityDistanceText(distanceMeters: Double): String {
         "${distanceMeters.roundToInt()} m"
     }
 }
-
