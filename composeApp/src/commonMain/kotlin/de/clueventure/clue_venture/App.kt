@@ -51,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 private object BottomBarIcons {
@@ -593,7 +594,6 @@ private fun CreateAdventureScreen(
     var title by remember { mutableStateOf("") }
     var summary by remember { mutableStateOf("") }
     var difficulty by remember { mutableStateOf("") }
-    var durationMinutes by remember { mutableStateOf("") }
     var startLatitude by remember { mutableStateOf("") }
     var startLongitude by remember { mutableStateOf("") }
 
@@ -637,7 +637,6 @@ private fun CreateAdventureScreen(
     fun submitCreateAdventure() {
         val parsedStartLatitude = startLatitude.toDoubleOrNull()
         val parsedStartLongitude = startLongitude.toDoubleOrNull()
-        val parsedDuration = durationMinutes.toIntOrNull()
 
         when {
             title.isBlank() -> errorMessage = "Bitte gib einen Titel ein."
@@ -650,10 +649,6 @@ private fun CreateAdventureScreen(
                 errorMessage = "Startkoordinaten muessen in gueltigen Bereichen liegen."
             }
 
-            parsedDuration != null && parsedDuration <= 0 -> {
-                errorMessage = "Die Dauer muss groesser als 0 sein."
-            }
-
             locations.isEmpty() -> {
                 errorMessage = "Bitte fuege mindestens einen Ort hinzu."
             }
@@ -663,16 +658,22 @@ private fun CreateAdventureScreen(
                 isSubmitting = true
                 scope.launch {
                     runCatching {
+                        val startPoint = GeoPoint(
+                            latitude = parsedStartLatitude,
+                            longitude = parsedStartLongitude,
+                        )
+                        val calculatedDurationMinutes = calculateAdventureDurationMinutes(
+                            startPoint = startPoint,
+                            locations = locations,
+                        )
+
                         createAdventure(
                             AdventureDraft(
                                 title = title.trim(),
                                 summary = summary.trim(),
-                                startPoint = GeoPoint(
-                                    latitude = parsedStartLatitude,
-                                    longitude = parsedStartLongitude,
-                                ),
+                                startPoint = startPoint,
                                 difficulty = difficulty.takeIf { it.isNotBlank() }?.trim(),
-                                estimatedDurationMinutes = parsedDuration,
+                                estimatedDurationMinutes = calculatedDurationMinutes,
                                 locations = locations,
                             ),
                         )
@@ -808,12 +809,10 @@ private fun CreateAdventureScreen(
                 )
             }
             item {
-                OutlinedTextField(
-                    value = durationMinutes,
-                    onValueChange = { durationMinutes = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Dauer in Minuten (optional)") },
-                    singleLine = true,
+                Text(
+                    text = "Dauer wird automatisch aus Route und Orten berechnet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             item {
@@ -1012,11 +1011,6 @@ private fun EditAdventureScreen(
     var title by remember(adventure.id) { mutableStateOf(adventure.title) }
     var summary by remember(adventure.id) { mutableStateOf(adventure.summary) }
     var difficulty by remember(adventure.id) { mutableStateOf(adventure.difficulty.orEmpty()) }
-    var durationMinutes by remember(adventure.id) {
-        mutableStateOf(
-            adventure.estimatedDurationMinutes?.toString().orEmpty()
-        )
-    }
     var startLatitude by remember(adventure.id) { mutableStateOf(adventure.startPoint.latitude.toString()) }
     var startLongitude by remember(adventure.id) { mutableStateOf(adventure.startPoint.longitude.toString()) }
 
@@ -1084,7 +1078,6 @@ private fun EditAdventureScreen(
     fun submitAdventureUpdate() {
         val parsedStartLatitude = startLatitude.toDoubleOrNull()
         val parsedStartLongitude = startLongitude.toDoubleOrNull()
-        val parsedDuration = durationMinutes.toIntOrNull()
 
         when {
             title.isBlank() -> errorMessage = "Bitte gib einen Titel ein."
@@ -1097,10 +1090,6 @@ private fun EditAdventureScreen(
                 errorMessage = "Startkoordinaten muessen in gueltigen Bereichen liegen."
             }
 
-            parsedDuration != null && parsedDuration <= 0 -> {
-                errorMessage = "Die Dauer muss groesser als 0 sein."
-            }
-
             orderedLocations.isEmpty() -> {
                 errorMessage = "Bitte fuege mindestens einen Ort hinzu."
             }
@@ -1110,6 +1099,24 @@ private fun EditAdventureScreen(
                 isSubmitting = true
                 scope.launch {
                     runCatching {
+                        val startPoint = GeoPoint(
+                            latitude = parsedStartLatitude,
+                            longitude = parsedStartLongitude,
+                        )
+                        val finalLocationDrafts = orderedLocations.map { locationItem ->
+                            when (locationItem) {
+                                is EditLocationItem.Existing -> AdventureLocationDraft(
+                                    name = locationItem.location.name,
+                                    point = locationItem.location.point,
+                                )
+
+                                is EditLocationItem.New -> locationItem.draft
+                            }
+                        }
+                        val calculatedDurationMinutes = calculateAdventureDurationMinutes(
+                            startPoint = startPoint,
+                            locations = finalLocationDrafts,
+                        )
                         val removedOrderIndexes = removedExistingLocations.map { it.orderIndex }
                         val newLocationItems = orderedLocations.mapNotNull { locationItem ->
                             locationItem as? EditLocationItem.New
@@ -1122,12 +1129,9 @@ private fun EditAdventureScreen(
                             draft = AdventureMetadataDraft(
                                 title = title.trim(),
                                 summary = summary.trim(),
-                                startPoint = GeoPoint(
-                                    latitude = parsedStartLatitude,
-                                    longitude = parsedStartLongitude,
-                                ),
+                                startPoint = startPoint,
                                 difficulty = difficulty.takeIf { it.isNotBlank() }?.trim(),
-                                estimatedDurationMinutes = parsedDuration,
+                                estimatedDurationMinutes = calculatedDurationMinutes,
                             ),
                         )
 
@@ -1279,12 +1283,10 @@ private fun EditAdventureScreen(
                 )
             }
             item {
-                OutlinedTextField(
-                    value = durationMinutes,
-                    onValueChange = { durationMinutes = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Dauer in Minuten (optional)") },
-                    singleLine = true,
+                Text(
+                    text = "Dauer wird automatisch aus Route und Orten berechnet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             item {
@@ -1614,6 +1616,19 @@ private fun parseGeoPoint(latitudeText: String, longitudeText: String): GeoPoint
     }
 
     return GeoPoint(latitude = latitude, longitude = longitude)
+}
+
+private suspend fun calculateAdventureDurationMinutes(
+    startPoint: GeoPoint,
+    locations: List<AdventureLocationDraft>,
+): Int {
+    val routePoints = listOf(startPoint) + locations.map { it.point }
+    val distanceMeters = getWalkingRouteDistanceMeters(routePoints)
+        ?: routePoints.zipWithNext { current, next -> current.distanceTo(next) }.sum()
+    val walkingMinutes = (distanceMeters / 1_000.0) / 4.0 * 60.0
+    val locationMinutes = locations.size * 5
+
+    return ceil(walkingMinutes + locationMinutes).toInt().coerceAtLeast(locationMinutes)
 }
 
 private fun canStartAdventure(startPoint: GeoPoint, currentLocation: GeoPoint?): Boolean {

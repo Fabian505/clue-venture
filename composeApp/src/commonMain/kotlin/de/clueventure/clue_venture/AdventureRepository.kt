@@ -18,6 +18,8 @@ expect suspend fun updateAdventure(adventureId: String, draft: AdventureMetadata
 
 expect suspend fun appendAdventureLocations(adventureId: String, locations: List<AdventureLocationDraft>): List<AdventureLocation>
 
+expect suspend fun getWalkingRouteDistanceMeters(points: List<GeoPoint>): Double?
+
 // ============================================================================
 // QUIZ REPOSITORY FUNCTIONS
 // ============================================================================

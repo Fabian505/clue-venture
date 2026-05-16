@@ -1,6 +1,7 @@
 package de.clueventure.clue_venture
 
 import android.content.Context
+import android.util.Log
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Order
@@ -9,10 +10,13 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.net.HttpURLConnection
+import java.net.URL
 
 actual fun currentTimeMillis(): Long = System.currentTimeMillis()
 
@@ -28,6 +32,8 @@ internal object AndroidSessionStorage {
 
 private const val SESSION_PREFS_NAME = "clue_venture_session"
 private const val CURRENT_USER_KEY = "current_user"
+private const val ROUTING_LOG_TAG = "ClueVentureRouting"
+private const val ROUTING_USER_AGENT = "ClueVenture/1.0 (Android; ClueVenture Team - Educational Project)"
 
 private val sessionJson = Json {
     ignoreUnknownKeys = true
@@ -162,6 +168,72 @@ actual suspend fun getAdventureLocations(adventureId: String): List<AdventureLoc
     println("HINTS_DEBUG: hintsByLocationId keys=${hintsByLocationId.keys}")
 
     locationEntities.map { it.toAdventureLocation(hintsByLocationId[it.id].orEmpty()) }
+}
+
+actual suspend fun getWalkingRouteDistanceMeters(points: List<GeoPoint>): Double? = withContext(Dispatchers.IO) {
+    if (points.size < 2) {
+        return@withContext 0.0
+    }
+
+    runCatching {
+        val routeUrl = buildWalkingRouteDistanceUrl(points)
+        Log.d(ROUTING_LOG_TAG, "Requesting duration route: $routeUrl")
+
+        val connection = URL(routeUrl).openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = 10_000
+            connection.readTimeout = 10_000
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("User-Agent", ROUTING_USER_AGENT)
+
+            val responseCode = connection.responseCode
+            val responseText = if (responseCode in 200..299) {
+                connection.inputStream.bufferedReader().use { it.readText() }
+            } else {
+                connection.errorStream?.bufferedReader().use { it?.readText().orEmpty() }
+            }
+
+            Log.d(ROUTING_LOG_TAG, "Duration route response code: $responseCode")
+            Log.d(ROUTING_LOG_TAG, "Duration route response body: ${responseText.take(500)}")
+            parseWalkingRouteDistanceMeters(responseText)
+        } finally {
+            connection.disconnect()
+        }
+    }.onFailure { throwable ->
+        Log.e(ROUTING_LOG_TAG, "Duration route request failed", throwable)
+    }.getOrNull()
+}
+
+private fun buildWalkingRouteDistanceUrl(points: List<GeoPoint>): String {
+    val coordinates = points.joinToString(";") { point ->
+        "${point.longitude},${point.latitude}"
+    }
+    return "https://router.project-osrm.org/route/v1/foot/$coordinates?overview=false&steps=false"
+}
+
+private fun parseWalkingRouteDistanceMeters(responseText: String): Double? {
+    if (responseText.isBlank()) {
+        Log.w(ROUTING_LOG_TAG, "Duration route response is blank")
+        return null
+    }
+
+    val root = JSONObject(responseText)
+    val code = root.optString("code")
+    val message = root.optString("message")
+    if (code.isNotBlank() && code != "Ok") {
+        Log.w(ROUTING_LOG_TAG, "Duration route returned code=$code message=$message")
+        return null
+    }
+
+    val routes = root.optJSONArray("routes")
+    if (routes == null || routes.length() == 0) {
+        Log.w(ROUTING_LOG_TAG, "Duration route response contains no routes")
+        return null
+    }
+
+    val distance = routes.getJSONObject(0).optDouble("distance", Double.NaN)
+    return distance.takeIf { !it.isNaN() }
 }
 
 actual suspend fun deleteAdventureLocation(adventureId: String, orderIndex: Int): Unit = withContext(Dispatchers.IO) {
