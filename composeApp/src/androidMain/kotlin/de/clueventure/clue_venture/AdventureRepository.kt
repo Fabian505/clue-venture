@@ -2,10 +2,25 @@ package de.clueventure.clue_venture
 
 import android.content.Context
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
-import java.time.Instant
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+
+actual fun currentTimeMillis(): Long = System.currentTimeMillis()
+
+private fun nowIso8601(): String {
+    val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+    sdf.timeZone = TimeZone.getTimeZone("UTC")
+    return sdf.format(Date())
+}
 
 internal object AndroidSessionStorage {
     lateinit var context: Context
@@ -112,14 +127,41 @@ actual suspend fun deleteAdventure(adventureId: String): Unit = withContext(Disp
 actual suspend fun getAdventureLocations(adventureId: String): List<AdventureLocation> = withContext(Dispatchers.IO) {
     val numericAdventureId = adventureId.toLongOrNull() ?: return@withContext emptyList()
 
-    supabaseClient.from("adventure_locations")
+    val locationEntities = supabaseClient.from("adventure_locations")
         .select()
         .decodeList<AdventureLocationEntity>()
-        .asSequence()
         .filter { it.adventureId == numericAdventureId }
         .sortedBy { it.orderIndex }
-        .map { it.toAdventureLocation() }
-        .toList()
+
+    println("HINTS_DEBUG: Loaded ${locationEntities.size} locations for adventure $adventureId")
+    locationEntities.forEach { loc ->
+        println("HINTS_DEBUG: Location id=${loc.id} name='${loc.name}' pointValue=${loc.pointValue}")
+    }
+
+    val locationIds = locationEntities.map { it.id }.toSet()
+    println("HINTS_DEBUG: Querying hints for locationIds=$locationIds")
+
+    val hintsByLocationId = runCatching {
+        val allHints = supabaseClient.from("hints")
+            .select()
+            .decodeList<HintEntity>()
+        println("HINTS_DEBUG: Total hints in DB (visible to this user): ${allHints.size}")
+        allHints.forEach { h ->
+            println("HINTS_DEBUG: Hint id=${h.id} locationId=${h.locationId} index=${h.hintIndex} text='${h.text}'")
+        }
+        allHints
+            .filter { it.locationId in locationIds }
+            .sortedBy { it.hintIndex }
+            .groupBy { it.locationId }
+            .mapValues { (_, entities) -> entities.map { it.toHint() } }
+    }.onFailure { e ->
+        println("HINTS_DEBUG: ERROR fetching hints: ${e.message}")
+        e.printStackTrace()
+    }.getOrDefault(emptyMap())
+
+    println("HINTS_DEBUG: hintsByLocationId keys=${hintsByLocationId.keys}")
+
+    locationEntities.map { it.toAdventureLocation(hintsByLocationId[it.id].orEmpty()) }
 }
 
 actual suspend fun deleteAdventureLocation(adventureId: String, orderIndex: Int): Unit = withContext(Dispatchers.IO) {
@@ -488,12 +530,6 @@ actual suspend fun finishAdventureAttempt(attemptId: Long): Int = withContext(Di
             .decodeList<AdventureAttemptEntity>()
             .find { it.id == attemptId } ?: return@withContext 0
 
-        val correctAnswers = supabaseClient.from("user_answers")
-            .select()
-            .decodeList<UserAnswerEntity>()
-            .filter { it.attemptId == attemptId && it.isCorrect }
-            .size
-
         val adventure = supabaseClient.from("adventures")
             .select()
             .decodeList<AdventureEntity>()
@@ -505,14 +541,13 @@ actual suspend fun finishAdventureAttempt(attemptId: Long): Int = withContext(Di
         val pointsEarned = calculateAdventurePoints(
             timeSpentSeconds,
             adventure.estimatedDurationMinutes ?: 60,
-            correctAnswers,
-        )
+        ) + adventure.completionPoints
 
         supabaseClient.from("adventure_attempts")
             .update(
                 AdventureAttemptFinishEntity(
                     isCompleted = true,
-                    completedAt = Instant.now().toString(),
+                    completedAt = nowIso8601(),
                     timeSpentSeconds = timeSpentSeconds,
                     pointsEarned = pointsEarned,
                 ),
@@ -548,15 +583,15 @@ actual suspend fun cancelAdventureAttempt(attemptId: Long): Unit = withContext(D
             .decodeList<AdventureAttemptEntity>()
             .find { it.id == attemptId } ?: throw IllegalStateException("Adventure attempt not found")
 
-        val now = Instant.now()
-        val startedAtMillis = attempt.startedAt.toLongOrNull() ?: now.toEpochMilli()
-        val timeSpentSeconds = ((now.toEpochMilli() - startedAtMillis) / 1000).toInt().coerceAtLeast(0)
+        val nowMillis = System.currentTimeMillis()
+        val startedAtMillis = attempt.startedAt.toLongOrNull() ?: nowMillis
+        val timeSpentSeconds = ((nowMillis - startedAtMillis) / 1000).toInt().coerceAtLeast(0)
 
         supabaseClient.from("adventure_attempts")
             .update(
                 AdventureAttemptCancelEntity(
                     isCompleted = false,
-                    completedAt = now.toString(),
+                    completedAt = nowIso8601(),
                     timeSpentSeconds = timeSpentSeconds,
                     pointsEarned = 0,
                 ),
@@ -648,6 +683,81 @@ actual suspend fun getCurrentAttemptForAdventure(adventureId: String, userId: St
     }
 }
 
+// ============================================================================
+// HINTS & POINTS REPOSITORY IMPLEMENTATIONS
+// ============================================================================
+
+actual suspend fun getHints(locationId: Long): List<Hint> = withContext(Dispatchers.IO) {
+    runCatching {
+        supabaseClient.from("hints")
+            .select()
+            .decodeList<HintEntity>()
+            .filter { it.locationId == locationId }
+            .sortedBy { it.hintIndex }
+            .map { it.toHint() }
+    }.onFailure { e ->
+        println("Error fetching hints for location $locationId: ${e.message}")
+    }.getOrDefault(emptyList())
+}
+
+actual suspend fun getUserPoints(userId: String): Int = withContext(Dispatchers.IO) {
+    runCatching {
+        supabaseClient.from("user_profiles")
+            .select()
+            .decodeList<UserProfileEntity>()
+            .find { it.userId == userId }
+            ?.totalPoints ?: 0
+    }.onFailure { e ->
+        println("Error fetching points for user $userId: ${e.message}")
+    }.getOrDefault(0)
+}
+
+actual suspend fun updateUserPoints(userId: String, pointsDelta: Int): Unit = withContext(Dispatchers.IO) {
+    // Single atomic RPC call — avoids the read-then-write race condition.
+    // Requires this Postgres function in Supabase:
+    //   CREATE OR REPLACE FUNCTION increment_user_points(p_user_id UUID, p_delta INT)
+    //   RETURNS VOID LANGUAGE SQL AS $$
+    //     UPDATE user_profiles SET total_points = total_points + p_delta WHERE user_id = p_user_id;
+    //   $$;
+    runCatching {
+        supabaseClient.postgrest.rpc(
+            "increment_user_points",
+            buildJsonObject {
+                put("p_user_id", userId)
+                put("p_delta", pointsDelta)
+            },
+        )
+    }.onFailure { e ->
+        println("Error updating points for user $userId: ${e.message}")
+        throw e
+    }
+    Unit
+}
+
+actual suspend fun getLeaderboard(limit: Int): List<Pair<String, Int>> = withContext(Dispatchers.IO) {
+    runCatching {
+        val profiles = supabaseClient.from("user_profiles")
+            .select {
+                order("total_points", Order.DESCENDING)
+                limit(limit.toLong())
+            }
+            .decodeList<UserProfileEntity>()
+
+        val userIds = profiles.map { it.userId }.toSet()
+        val displayNameById = supabaseClient.from("users")
+            .select()
+            .decodeList<UserEntity>()
+            .filter { it.id in userIds }
+            .associate { it.id to (it.username ?: it.email) }
+
+        profiles.map { profile ->
+            (displayNameById[profile.userId] ?: profile.userId) to profile.totalPoints
+        }
+    }.onFailure { e ->
+        println("Error fetching leaderboard: ${e.message}")
+    }.getOrDefault(emptyList())
+}
+
 actual suspend fun submitAdventureFeedback(draft: AdventureFeedbackDraft): AdventureFeedback = withContext(Dispatchers.IO) {
     try {
         val numericAdventureId = draft.adventureId.toLongOrNull()
@@ -665,7 +775,7 @@ actual suspend fun submitAdventureFeedback(draft: AdventureFeedbackDraft): Adven
                         difficultyRating = draft.difficultyRating,
                         overallRating = draft.overallRating,
                         customFeedback = draft.customFeedback,
-                        updatedAt = Instant.now().toString(),
+                        updatedAt = nowIso8601(),
                     ),
                 ) {
                     filter { eq("id", existingFeedback.id) }

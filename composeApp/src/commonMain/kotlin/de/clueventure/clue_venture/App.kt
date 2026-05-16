@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -46,6 +47,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -386,31 +388,19 @@ fun App() {
                             )
                         }
 
-                        BottomTab.Right -> Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                Text(
-                                    text = currentUser?.email.orEmpty(),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                                Button(
-                                    onClick = {
-                                        appScope.launch {
-                                            logoutUser()
-                                            resetAuthenticatedUiState()
-                                            currentUser = null
-                                        }
-                                    },
-                                ) {
-                                    Text("Abmelden")
+                        BottomTab.Right -> ProfileAndLeaderboardTab(
+                            currentUser = currentUser!!,
+                            onLogout = {
+                                appScope.launch {
+                                    logoutUser()
+                                    resetAuthenticatedUiState()
+                                    currentUser = null
                                 }
-                            }
-                        }
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding),
+                        )
                     }
                 }
             }
@@ -1641,4 +1631,116 @@ private fun startDialogDistanceLabel(startPoint: GeoPoint, currentLocation: GeoP
 
     val distanceMeters = startPoint.distanceTo(currentLocation).roundToInt()
     return "Du bist $distanceMeters m vom Startpunkt entfernt."
+}
+
+@Composable
+private fun ProfileAndLeaderboardTab(
+    currentUser: User,
+    onLogout: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var totalPoints by remember { mutableStateOf<Int?>(null) }
+    var leaderboard by remember { mutableStateOf<List<Pair<String, Int>>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        isLoading = true
+        totalPoints = runCatching { getUserPoints(currentUser.id) }.getOrDefault(0)
+        leaderboard = runCatching { getLeaderboard(50) }.getOrDefault(emptyList())
+        isLoading = false
+    }
+
+    val currentUserDisplayName = currentUser.username ?: currentUser.email
+
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        // Profile card
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "Profil",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = currentUser.email,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = totalPoints?.let { "Punkte: $it" } ?: "Punkte werden geladen...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Button(
+                        onClick = onLogout,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Abmelden")
+                    }
+                }
+            }
+        }
+
+        // Leaderboard header
+        item {
+            Text(
+                text = "Rangliste",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+
+        // Loading state
+        if (isLoading) {
+            item {
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
+            }
+        } else {
+            itemsIndexed(leaderboard) { index, (displayName, points) ->
+                val isCurrentUser = displayName == currentUserDisplayName
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = if (isCurrentUser) {
+                        CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        )
+                    } else {
+                        CardDefaults.cardColors()
+                    },
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "${index + 1}. $displayName",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = if (isCurrentUser) FontWeight.Bold else FontWeight.Normal,
+                        )
+                        Text(
+                            text = "$points Punkte",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+        }
+    }
 }

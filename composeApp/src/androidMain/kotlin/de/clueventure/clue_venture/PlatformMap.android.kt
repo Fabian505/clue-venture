@@ -100,6 +100,8 @@ actual fun PlatformMap(
     showQuestionsButton: Boolean,
     questionCount: Int,
     onQuestionsClicked: () -> Unit,
+    showHintsButton: Boolean,
+    onHintsClicked: () -> Unit,
     onRouteDistanceChanged: (Double?) -> Unit,
 ) {
     val context = LocalContext.current
@@ -356,6 +358,23 @@ actual fun PlatformMap(
                 .align(Alignment.BottomEnd)
                 .padding(16.dp),
         ) {
+            if (showHintsButton) {
+                Surface(
+                    shape = CircleShape,
+                    tonalElevation = 4.dp,
+                    shadowElevation = 6.dp,
+                ) {
+                    TextButton(
+                        onClick = onHintsClicked,
+                        modifier = Modifier.size(width = 104.dp, height = 48.dp),
+                    ) {
+                        Text("Hinweise")
+                    }
+                }
+
+                Box(modifier = Modifier.size(12.dp))
+            }
+
             if (showQuestionsButton) {
                 Surface(
                     shape = CircleShape,

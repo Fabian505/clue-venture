@@ -14,5 +14,7 @@ expect fun PlatformMap(
 	showQuestionsButton: Boolean = false,
 	questionCount: Int = 0,
 	onQuestionsClicked: () -> Unit = {},
+	showHintsButton: Boolean = false,
+	onHintsClicked: () -> Unit = {},
 	onRouteDistanceChanged: (Double?) -> Unit = {},
 )

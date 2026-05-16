@@ -7,11 +7,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -137,6 +139,11 @@ fun AdventureGameScreen(
     var attemptError by remember { mutableStateOf<String?>(null) }
     var finishError by remember { mutableStateOf<String?>(null) }
     var showCloseConfirmation by remember { mutableStateOf(false) }
+    var userPoints by remember { mutableIntStateOf(0) }
+    var boughtHintIndices by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var checkpointStartTime by remember { mutableStateOf(currentTimeMillis()) }
+    var hint0PopupText by remember { mutableStateOf<String?>(null) }
+    var showHintsSheet by remember { mutableStateOf(false) }
 
     val currentWaypoint = adventureLocations.getOrNull(currentCheckpointIndex)
     val isProximityAlertVisible = currentLocationState != null &&
@@ -236,6 +243,42 @@ fun AdventureGameScreen(
             currentCheckpointIndex != lastReachedCheckpointIndex
         ) {
             lastReachedCheckpointIndex = currentCheckpointIndex
+
+            // Award checkpoint points with time penalty before advancing
+            currentWaypoint?.let { waypoint ->
+                if (waypoint.pointValue > 0) {
+                    val elapsedSeconds = ((currentTimeMillis() - checkpointStartTime) / 1000).toInt()
+                    val previousPoint = if (currentCheckpointIndex == 0) {
+                        adventure.startPoint
+                    } else {
+                        adventureLocations.getOrNull(currentCheckpointIndex - 1)?.point
+                            ?: adventure.startPoint
+                    }
+                    val timeLimit = effectiveTimeLimitSeconds(
+                        manualTimeLimitSeconds = waypoint.timeLimitSeconds,
+                        previousPoint = previousPoint,
+                        currentPoint = waypoint.point,
+                    )
+                    val awarded = calculateCheckpointPoints(
+                        basePoints = waypoint.pointValue,
+                        elapsedSeconds = elapsedSeconds,
+                        timeLimitSeconds = timeLimit,
+                    )
+                    coroutineScope.launch {
+                        runCatching { updateUserPoints(userId, awarded) }
+                        userPoints = runCatching { getUserPoints(userId) }.getOrDefault(userPoints)
+                    }
+                }
+            }
+
+            // Reset timer for the next checkpoint leg
+            checkpointStartTime = currentTimeMillis()
+
+            // Show hint 0 popup for the checkpoint that was just reached
+            currentWaypoint?.hints?.find { it.hintIndex == 0 }?.let { hint0 ->
+                hint0PopupText = hint0.text
+            }
+
             expectingNewRouteDistanceForCheckpoint = true
             currentRouteDistanceMeters = null
             pendingRouteDistanceMeters = null
@@ -280,6 +323,17 @@ fun AdventureGameScreen(
             currentCheckpointIndex = adventureLocations.lastIndex.coerceAtLeast(0)
             gameState = GameState.Complete
         }
+    }
+
+    // Load the user's current point balance once on entry
+    LaunchedEffect(userId) {
+        userPoints = runCatching { getUserPoints(userId) }.getOrDefault(0)
+    }
+
+    // Reset bought hints and hints sheet whenever we move to a new checkpoint
+    LaunchedEffect(currentCheckpointIndex) {
+        boughtHintIndices = emptySet()
+        showHintsSheet = false
     }
 
     LaunchedEffect(gameState, currentAttempt?.id) {
@@ -412,6 +466,19 @@ fun AdventureGameScreen(
             )
         }
 
+        hint0PopupText?.let { text ->
+            AlertDialog(
+                onDismissRequest = { hint0PopupText = null },
+                title = { Text("Hinweis") },
+                text = { Text(text) },
+                confirmButton = {
+                    Button(onClick = { hint0PopupText = null }) {
+                        Text("Ok")
+                    }
+                },
+            )
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -463,6 +530,8 @@ fun AdventureGameScreen(
                             },
                             showQuestionsButton = true,
                             questionCount = availableQuestionCount,
+                            showHintsButton = currentWaypoint?.hints?.isNotEmpty() == true,
+                            onHintsClicked = { showHintsSheet = true },
                             onQuestionsClicked = {
                                 if (showQuizSheet || availableQuestionCount <= 0) {
                                     return@PlatformMap
@@ -473,6 +542,7 @@ fun AdventureGameScreen(
                                     currentQuizQuestionIndex = questionIndex
                                     currentQuizQuestion = null
                                     showQuizSheet = true
+                                    showHintsSheet = false
                                     gameState = GameState.ShowingQuiz
 
                                     try {
@@ -493,7 +563,9 @@ fun AdventureGameScreen(
                         Column(
                             modifier = Modifier
                                 .align(Alignment.TopStart)
-                                .padding(16.dp),
+                                .padding(16.dp)
+                                .heightIn(max = 420.dp)
+                                .verticalScroll(rememberScrollState()),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             currentWaypoint?.let { waypoint ->
@@ -502,6 +574,7 @@ fun AdventureGameScreen(
                                     targetLocation = waypoint.point,
                                     targetName = waypoint.name,
                                     quizPointsEarned = quizPointsEarned,
+                                    userPoints = userPoints,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                             }
@@ -513,6 +586,28 @@ fun AdventureGameScreen(
                                 distanceMeters = distanceToWaypoint,
                                 modifier = Modifier.fillMaxWidth(),
                             )
+                        }
+
+                        if (showHintsSheet) {
+                            currentWaypoint?.let { waypoint ->
+                                HintBottomSheet(
+                                    hints = waypoint.hints,
+                                    boughtHintIndices = boughtHintIndices,
+                                    userPoints = userPoints,
+                                    onBuyHint = { hint ->
+                                        coroutineScope.launch {
+                                            runCatching {
+                                                updateUserPoints(userId, -hint.pointCost)
+                                                boughtHintIndices = boughtHintIndices + hint.hintIndex
+                                                userPoints = runCatching { getUserPoints(userId) }.getOrDefault(userPoints)
+                                            }.onFailure { e ->
+                                                println("Error buying hint ${hint.hintIndex}: ${e.message}")
+                                            }
+                                        }
+                                    },
+                                    onDismiss = { showHintsSheet = false },
+                                )
+                            }
                         }
                     }
                 }
@@ -542,6 +637,8 @@ fun AdventureGameScreen(
                             onQuestionsClicked = {
                                 // Quiz popup is already open here; ignore additional taps.
                             },
+                            showHintsButton = false,
+                            onHintsClicked = {},
                         )
 
                         Box(
@@ -602,6 +699,10 @@ fun AdventureGameScreen(
                                                     answeredQuestionIds = answeredQuestionIds + event.questionId
                                                     if (event.isCorrect) {
                                                         correctAnswerCount += 1
+                                                        coroutineScope.launch {
+                                                            runCatching { updateUserPoints(userId, PUZZLE_POINTS_PER_CORRECT_ANSWER) }
+                                                            userPoints = runCatching { getUserPoints(userId) }.getOrDefault(userPoints)
+                                                        }
                                                     }
                                                     coroutineScope.launch {
                                                         recordQuizAnswerEvaluation(event)
@@ -858,6 +959,7 @@ private fun NavigationIndicator(
     targetLocation: GeoPoint,
     targetName: String,
     quizPointsEarned: Int,
+    userPoints: Int,
     modifier: Modifier = Modifier,
 ) {
     val distanceText = currentLocation?.distanceTo(targetLocation)?.let { distanceMeters ->
@@ -900,6 +1002,120 @@ private fun NavigationIndicator(
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.primary,
             )
+            Text(
+                text = "Guthaben: $userPoints Punkte",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+        }
+    }
+}
+
+private const val PUZZLE_POINTS_PER_CORRECT_ANSWER = 100
+
+@Composable
+private fun HintBottomSheet(
+    hints: List<Hint>,
+    boughtHintIndices: Set<Int>,
+    userPoints: Int,
+    onBuyHint: (Hint) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val hint0 = hints.find { it.hintIndex == 0 }
+    val hint1 = hints.find { it.hintIndex == 1 }
+    val hint2 = hints.find { it.hintIndex == 2 }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.35f))
+            .clickable(onClick = onDismiss),
+    ) {
+        Card(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .fillMaxHeight(0.5f)
+                .clickable {},
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .padding(top = 12.dp)
+                        .align(Alignment.CenterHorizontally)
+                        .background(
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                            RoundedCornerShape(2.dp),
+                        )
+                        .size(width = 40.dp, height = 4.dp),
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Hinweise", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    TextButton(onClick = onDismiss) { Text("Schließen") }
+                }
+
+                Spacer(Modifier.height(8.dp))
+
+                hint0?.let {
+                    Text(
+                        text = it.text,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+
+                hint1?.let { hint ->
+                    Spacer(Modifier.height(12.dp))
+                    if (1 in boughtHintIndices) {
+                        Text(
+                            text = hint.text,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    } else {
+                        Button(
+                            onClick = { onBuyHint(hint) },
+                            enabled = userPoints >= hint.pointCost,
+                        ) {
+                            Text("Hinweis 1 kaufen (${hint.pointCost} Punkte)")
+                        }
+                    }
+                }
+
+                hint2?.let { hint ->
+                    Spacer(Modifier.height(12.dp))
+                    if (2 in boughtHintIndices) {
+                        Text(
+                            text = hint.text,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    } else {
+                        Button(
+                            onClick = { onBuyHint(hint) },
+                            enabled = userPoints >= hint.pointCost,
+                        ) {
+                            Text("Hinweis 2 kaufen (${hint.pointCost} Punkte)")
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(24.dp))
+            }
         }
     }
 }

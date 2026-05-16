@@ -12,6 +12,7 @@ data class AdventureEntity(
     @SerialName("start_longitude") val startLongitude: Double,
     val difficulty: String? = null,
     @SerialName("estimated_duration_minutes") val estimatedDurationMinutes: Int? = null,
+    @SerialName("completion_points") val completionPoints: Int = 0,
 )
 
 @Serializable
@@ -22,6 +23,7 @@ data class AdventureInsertEntity(
     @SerialName("start_longitude") val startLongitude: Double,
     val difficulty: String? = null,
     @SerialName("estimated_duration_minutes") val estimatedDurationMinutes: Int? = null,
+    @SerialName("completion_points") val completionPoints: Int = 0,
 )
 
 @Serializable
@@ -32,6 +34,7 @@ data class AdventureUpdateEntity(
     @SerialName("start_longitude") val startLongitude: Double,
     val difficulty: String? = null,
     @SerialName("estimated_duration_minutes") val estimatedDurationMinutes: Int? = null,
+    @SerialName("completion_points") val completionPoints: Int = 0,
 )
 
 @Serializable
@@ -41,15 +44,41 @@ data class AdventureLocationInsertEntity(
     val latitude: Double,
     val longitude: Double,
     @SerialName("order_index") val orderIndex: Int,
+    @SerialName("point_value") val pointValue: Int = 0,
+    @SerialName("time_limit_seconds") val timeLimitSeconds: Int? = null,
 )
 
 @Serializable
 data class AdventureLocationEntity(
+    val id: Long,
     @SerialName("adventure_id") val adventureId: Long,
     val name: String,
     val latitude: Double,
     val longitude: Double,
     @SerialName("order_index") val orderIndex: Int,
+    @SerialName("point_value") val pointValue: Int = 0,
+    @SerialName("time_limit_seconds") val timeLimitSeconds: Int? = null,
+)
+
+// ============================================================================
+// HINT ENTITIES
+// ============================================================================
+
+@Serializable
+data class HintEntity(
+    val id: Long,
+    @SerialName("location_id") val locationId: Long,
+    @SerialName("hint_index") val hintIndex: Int,
+    val text: String,
+    @SerialName("point_cost") val pointCost: Int = 0,
+)
+
+@Serializable
+data class HintInsertEntity(
+    @SerialName("location_id") val locationId: Long,
+    @SerialName("hint_index") val hintIndex: Int,
+    val text: String,
+    @SerialName("point_cost") val pointCost: Int = 0,
 )
 
 @Serializable
@@ -250,10 +279,23 @@ fun AdventureEntity.toAdventure(): Adventure = Adventure(
     startPoint = GeoPoint(latitude = startLatitude, longitude = startLongitude),
     difficulty = difficulty,
     estimatedDurationMinutes = estimatedDurationMinutes,
+    completionPoints = completionPoints,
 )
 
-fun AdventureLocationEntity.toAdventureLocation(): AdventureLocation = AdventureLocation(
+fun AdventureLocationEntity.toAdventureLocation(hints: List<Hint> = emptyList()): AdventureLocation = AdventureLocation(
+    id = id,
     name = name,
     point = GeoPoint(latitude = latitude, longitude = longitude),
     orderIndex = orderIndex,
+    pointValue = pointValue,
+    timeLimitSeconds = timeLimitSeconds,
+    hints = hints,
+)
+
+fun HintEntity.toHint(): Hint = Hint(
+    id = id,
+    locationId = locationId,
+    hintIndex = hintIndex,
+    text = text,
+    pointCost = pointCost,
 )

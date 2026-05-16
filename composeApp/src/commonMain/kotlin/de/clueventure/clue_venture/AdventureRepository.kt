@@ -1,5 +1,7 @@
 package de.clueventure.clue_venture
 
+expect fun currentTimeMillis(): Long
+
 expect suspend fun getAdventures(): List<Adventure>
 
 expect suspend fun createAdventure(draft: AdventureDraft): Adventure
@@ -63,3 +65,15 @@ expect suspend fun getUserProgress(attemptId: Long): UserProgress?
 expect suspend fun getCurrentAttemptForAdventure(adventureId: String, userId: String): AdventureAttempt?
 
 expect suspend fun submitAdventureFeedback(draft: AdventureFeedbackDraft): AdventureFeedback
+
+// ============================================================================
+// HINTS & POINTS REPOSITORY FUNCTIONS
+// ============================================================================
+
+expect suspend fun getHints(locationId: Long): List<Hint>
+
+expect suspend fun getUserPoints(userId: String): Int
+
+expect suspend fun updateUserPoints(userId: String, pointsDelta: Int)
+
+expect suspend fun getLeaderboard(limit: Int = 50): List<Pair<String, Int>>

@@ -24,12 +24,17 @@ data class Adventure(
     val difficulty: String? = null,
     val estimatedDurationMinutes: Int? = null,
     val locations: List<AdventureLocation> = emptyList(),
+    val completionPoints: Int = 0,
 )
 
 data class AdventureLocation(
+    val id: Long = -1L,
     val name: String,
     val point: GeoPoint,
     val orderIndex: Int,
+    val pointValue: Int = 0,
+    val timeLimitSeconds: Int? = null,
+    val hints: List<Hint> = emptyList(),
 )
 
 data class AdventureDraft(
@@ -182,6 +187,18 @@ val sampleAdventures = listOf(
         summary = "Entdecke die verborgenen Kunstwerke und finde den nächsten Hinweis.",
         startPoint = GeoPoint(latitude = 48.44337, longitude = 8.68579),
     ),
+)
+
+// ============================================================================
+// HINT DOMAIN MODEL
+// ============================================================================
+
+data class Hint(
+    val id: Long,
+    val locationId: Long,
+    val hintIndex: Int,     // 0 = free (shown on arrival), 1–2 = costs points
+    val text: String,
+    val pointCost: Int = 0,
 )
 
 // ============================================================================
@@ -392,23 +409,42 @@ fun AdventureFeedbackEntity.toAdventureFeedback(): AdventureFeedback =
 // ============================================================================
 
 /**
- * Calculate points earned for completing an adventure
+ * Returns the effective time limit in seconds for a checkpoint leg.
+ *
+ * If [manualTimeLimitSeconds] is set on the location it is used as-is (manual
+ * override). Otherwise the limit is derived from the straight-line distance
+ * between [previousPoint] and [currentPoint] divided by
+ * [walkingSpeedMetersPerSecond] (default 1.2 m/s = slow walking pace, giving
+ * a generous limit that scales with actual leg length).
+ */
+fun effectiveTimeLimitSeconds(
+    manualTimeLimitSeconds: Int?,
+    previousPoint: GeoPoint,
+    currentPoint: GeoPoint,
+    walkingSpeedMetersPerSecond: Double = 1.2,
+): Int {
+    if (manualTimeLimitSeconds != null) return manualTimeLimitSeconds
+    val distanceMeters = previousPoint.distanceTo(currentPoint)
+    return (distanceMeters / walkingSpeedMetersPerSecond).toInt().coerceAtLeast(1)
+}
+
+/**
+ * Calculate completion bonus points for finishing an adventure.
+ * Quiz points are awarded live per correct answer and are NOT included here
+ * to avoid double-counting.
  * @param timeSpentSeconds Time spent in seconds
  * @param estimatedMinutes Estimated duration in minutes
- * @param correctAnswerCount Number of correct quiz answers
- * @return Total points earned
+ * @return Time-based completion bonus (0–1000), minimum 100
  */
 fun calculateAdventurePoints(
     timeSpentSeconds: Int,
     estimatedMinutes: Int,
-    correctAnswerCount: Int,
 ): Int {
     val estimatedSeconds = estimatedMinutes * 60
     val timeRatio = timeSpentSeconds.toDouble() / estimatedSeconds
     val timeMultiplier = (1.0 - timeRatio.coerceIn(0.0, 1.0))
     val basePoints = (1000 * timeMultiplier).toInt()
-    val quizBonus = correctAnswerCount * 100
-    return maxOf(basePoints + quizBonus, 100)
+    return maxOf(basePoints, 100)
 }
 
 fun unlockedQuestionsForRouteDistance(routeDistanceMeters: Double?): Int {
@@ -424,6 +460,27 @@ fun updateUnlockedQuestionSlots(
     routeDistanceMeters: Double?,
 ): Int {
     return maxOf(currentUnlockedQuestionSlots, unlockedQuestionsForRouteDistance(routeDistanceMeters))
+}
+
+/**
+ * Calculate points earned for reaching a checkpoint, applying a time penalty
+ * if elapsed time exceeds the location's time limit.
+ *
+ * - No timeLimitSeconds → full basePoints, no penalty.
+ * - elapsed ≤ timeLimitSeconds → full basePoints.
+ * - elapsed > timeLimitSeconds → linear decay down to 50% floor at 2× the limit,
+ *   clamped so the result is never below basePoints / 2.
+ */
+fun calculateCheckpointPoints(
+    basePoints: Int,
+    elapsedSeconds: Int,
+    timeLimitSeconds: Int?,
+): Int {
+    if (timeLimitSeconds == null || elapsedSeconds <= timeLimitSeconds) return basePoints
+    val overtime = elapsedSeconds - timeLimitSeconds
+    val decayFraction = (overtime.toDouble() / timeLimitSeconds).coerceIn(0.0, 1.0)
+    val reduced = (basePoints * (1.0 - 0.5 * decayFraction)).toInt()
+    return maxOf(reduced, basePoints / 2)
 }
 
 fun calculateAvailableQuestionCount(
