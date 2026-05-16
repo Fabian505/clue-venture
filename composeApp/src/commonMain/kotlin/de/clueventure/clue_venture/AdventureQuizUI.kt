@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -18,12 +17,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,15 +69,15 @@ fun QuizScreen(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(horizontal = 10.dp, vertical = 8.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // Progress indicator
             Text(
                 text = "Frage ${currentQuestionIndex + 1} von ${questions.size}",
-                fontSize = 14.sp,
+                fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
@@ -100,29 +97,25 @@ fun QuizScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
             // Question Card
             currentQuestion?.let { question ->
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(8.dp),
+                        .padding(horizontal = 2.dp),
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
                             text = question.questionText,
-                            fontSize = 18.sp,
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
-
-                        Spacer(modifier = Modifier.height(8.dp))
 
                         // Answer options
                         val answers = question.answers.sortedBy { it.answerOrder }
@@ -146,8 +139,6 @@ fun QuizScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
             // Result feedback (shown after submission)
             AnimatedVisibility(
                 visible = showResults,
@@ -164,14 +155,14 @@ fun QuizScreen(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp),
+                                .padding(10.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             if (selectedAnswer?.isCorrect == true) {
                                 Text(
                                     text = "✅ Richtig!",
-                                    fontSize = 18.sp,
+                                    fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFF4CAF50),
                                 )
@@ -183,7 +174,7 @@ fun QuizScreen(
                             } else {
                                 Text(
                                     text = "❌ Leider falsch",
-                                    fontSize = 18.sp,
+                                    fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFFFF5722),
                                 )
@@ -198,8 +189,6 @@ fun QuizScreen(
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
 
             // Action buttons
             if (!showResults) {
@@ -224,7 +213,7 @@ fun QuizScreen(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp),
+                        .height(44.dp),
                     enabled = selectedAnswers.containsKey(questions[currentQuestionIndex].id),
                 ) {
                     Text("Antwort prüfen")
@@ -241,28 +230,9 @@ fun QuizScreen(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp),
+                        .height(44.dp),
                 ) {
                     Text(if (isLastQuestion) "Quiz abgeschlossen!" else "Nächste Frage")
-                }
-            }
-
-            if (showResults && !isLastQuestion) {
-                Button(
-                    onClick = {
-                        if (isLastQuestion) {
-                            onQuizCompleted(correctAnswerCount)
-                        } else {
-                            currentQuestionIndex++
-                            showResults = false
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(),
-                ) {
-                    Text("Oder weiter")
                 }
             }
         }
@@ -298,17 +268,17 @@ private fun AnswerButton(
             .clip(RoundedCornerShape(8.dp))
             .background(backgroundColor)
             .border(
-                width = 2.dp,
+                width = 1.dp,
                 color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
                 shape = RoundedCornerShape(8.dp),
             )
             .clickable(enabled = !showResult) { onClick() }
-            .padding(16.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -332,7 +302,7 @@ private fun AnswerButton(
             Text(
                 text = text,
                 color = textColor,
-                fontSize = 14.sp,
+                fontSize = 13.sp,
                 modifier = Modifier.weight(1f),
             )
         }

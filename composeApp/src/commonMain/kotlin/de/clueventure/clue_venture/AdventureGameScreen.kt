@@ -335,9 +335,9 @@ fun AdventureGameScreen(
                                     }
                                 }
                             },
-                            questionCount = totalQuizQuestionCount,
+                            questionCount = availableQuestionCount,
                             onQuestionsClicked = {
-                                if (showQuizSheet || totalQuizQuestionCount <= 0) {
+                                if (showQuizSheet || availableQuestionCount <= 0) {
                                     return@PlatformMap
                                 }
 

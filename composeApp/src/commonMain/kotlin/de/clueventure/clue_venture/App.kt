@@ -1,10 +1,5 @@
 package de.clueventure.clue_venture
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -177,17 +172,6 @@ private enum class MapPickerTarget {
 
 private const val START_ADVENTURE_MAX_DISTANCE_METERS = 10.0
 
-private data class AdventureProgressTarget(
-    val name: String,
-    val point: GeoPoint,
-)
-
-private data class ReachedAdventureTarget(
-    val name: String,
-    val reachedCount: Int,
-    val totalCount: Int,
-)
-
 @Composable
 @Preview
 fun App() {
@@ -207,13 +191,6 @@ fun App() {
     var adventurePendingStart by remember { mutableStateOf<Adventure?>(null) }
     var isStartingAdventure by remember { mutableStateOf(false) }
     var startErrorMessage by remember { mutableStateOf<String?>(null) }
-    var activeAdventureForOverlay by remember { mutableStateOf<Adventure?>(null) }
-    var activeAdventureTargets by remember { mutableStateOf<List<AdventureProgressTarget>>(emptyList()) }
-    var currentAdventureTargetIndex by remember { mutableStateOf(0) }
-    var reachedAdventureTarget by remember { mutableStateOf<ReachedAdventureTarget?>(null) }
-    var isActiveAdventureComplete by remember { mutableStateOf(false) }
-    var isAdventureOverlayExpanded by remember { mutableStateOf(true) }
-    var showEndAdventureConfirmation by remember { mutableStateOf(false) }
     var adventureRefreshKey by remember { mutableStateOf(0) }
     var activeAdventure by remember { mutableStateOf<Adventure?>(null) }
     var activeAdventureAttempt by remember { mutableStateOf<AdventureAttempt?>(null) }
@@ -227,14 +204,8 @@ fun App() {
     fun clearActiveAdventure() {
         routeTargets = emptyList()
         routedAdventureId = null
-        activeAdventureForOverlay = null
-        activeAdventureTargets = emptyList()
-        currentAdventureTargetIndex = 0
-        isActiveAdventureComplete = false
         activeAdventure = null
         activeAdventureAttempt = null
-        isAdventureOverlayExpanded = true
-        showEndAdventureConfirmation = false
     }
 
     fun resetAuthenticatedUiState() {
@@ -250,60 +221,6 @@ fun App() {
         isStartingAdventure = false
         startErrorMessage = null
     }
-
-     LaunchedEffect(
-         currentLocation,
-         activeAdventureForOverlay?.id,
-         activeAdventureTargets,
-         currentAdventureTargetIndex,
-         reachedAdventureTarget,
-         isActiveAdventureComplete,
-     ) {
-         val location = currentLocation ?: return@LaunchedEffect
-         val adventure = activeAdventureForOverlay ?: return@LaunchedEffect
-         val target = activeAdventureTargets.getOrNull(currentAdventureTargetIndex) ?: return@LaunchedEffect
-
-         if (reachedAdventureTarget != null || isActiveAdventureComplete) {
-             return@LaunchedEffect
-         }
-
-         if (target.point.distanceTo(location) > START_ADVENTURE_MAX_DISTANCE_METERS) {
-             return@LaunchedEffect
-         }
-
-         val reachedCount = currentAdventureTargetIndex + 1
-         val totalCount = activeAdventureTargets.size
-         if (currentAdventureTargetIndex == activeAdventureTargets.lastIndex) {
-             routeTargets = emptyList()
-             routedAdventureId = null
-             activeAdventureForOverlay = null
-             activeAdventureTargets = emptyList()
-             currentAdventureTargetIndex = 0
-             reachedAdventureTarget = null
-             isAdventureOverlayExpanded = true
-             showEndAdventureConfirmation = false
-             activeAdventure = adventure
-             isActiveAdventureComplete = true
-          } else {
-              // Skip showing the popup for the starting point - go directly to the first waypoint
-              if (currentAdventureTargetIndex == 0) {
-                  currentAdventureTargetIndex = reachedCount
-                  routeTargets = activeAdventureTargets.drop(reachedCount).map { it.point }
-              } else {
-                  // Show waypoint reached popup for non-starting waypoints
-                  reachedAdventureTarget = ReachedAdventureTarget(
-                      name = target.name,
-                      reachedCount = reachedCount,
-                      totalCount = totalCount,
-                  )
-                  currentAdventureTargetIndex = reachedCount
-                  routeTargets = activeAdventureTargets.drop(reachedCount).map { it.point }
-
-                  // Activate the game screen so the player can see the quiz or next waypoint info
-                  activeAdventure = adventure
-              }
-          }
-     }
 
     MaterialTheme {
         if (!isSessionLoaded) {
@@ -357,24 +274,19 @@ fun App() {
                         userId = currentUser?.id ?: return@let,
                         currentLocation = currentLocation,
                         initialAttempt = activeAdventureAttempt,
-                        isAdventureComplete = isActiveAdventureComplete,
                         callbacks = AdventureGameCallbacks(
                             onAdventureComplete = { points ->
-                            appScope.launch {
-                                snackbarHostState.showSnackbar(
-                                    message = "🎉 $points Punkte verdient!",
-                                    duration = androidx.compose.material3.SnackbarDuration.Long,
-                                )
-                            }
-                            activeAdventure = null
-                            activeAdventureAttempt = null
-                            isActiveAdventureComplete = false
-                            adventureRefreshKey += 1
+                                appScope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        message = "🎉 $points Punkte verdient!",
+                                        duration = androidx.compose.material3.SnackbarDuration.Long,
+                                    )
+                                }
+                                clearActiveAdventure()
+                                adventureRefreshKey += 1
                             },
                             onClose = {
-                                activeAdventure = null
-                                activeAdventureAttempt = null
-                                isActiveAdventureComplete = false
+                                clearActiveAdventure()
                             },
                         ),
                         modifier = Modifier
@@ -418,13 +330,7 @@ fun App() {
                             onNavigateToStart = { adventure ->
                                 routedAdventureId = adventure.id
                                 routeTargets = listOf(adventure.startPoint)
-                                activeAdventureForOverlay = null
-                                activeAdventureTargets = emptyList()
-                                currentAdventureTargetIndex = 0
-                                reachedAdventureTarget = null
-                                isActiveAdventureComplete = false
                                 activeAdventureAttempt = null
-                                showEndAdventureConfirmation = false
                                 selectedTab = BottomTab.Map
                             },
                             onStartAdventure = { adventure ->
@@ -451,27 +357,6 @@ fun App() {
                                 routeTargets = routeTargets,
                                 onCurrentLocationChanged = { currentLocation = it },
                             )
-
-                            activeAdventureForOverlay?.let { adventure ->
-                                ActiveAdventureOverlay(
-                                    adventure = adventure,
-                                    targets = activeAdventureTargets,
-                                    currentTargetIndex = currentAdventureTargetIndex,
-                                    currentLocation = currentLocation,
-                                    isExpanded = isAdventureOverlayExpanded,
-                                    onToggleExpanded = {
-                                        isAdventureOverlayExpanded = !isAdventureOverlayExpanded
-                                    },
-                                    onEndAdventure = {
-                                        showEndAdventureConfirmation = true
-                                    },
-                                    modifier = Modifier
-                                        .align(Alignment.TopCenter)
-                                        .fillMaxWidth()
-                                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
-                                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                                )
-                            }
                         }
 
                         BottomTab.Right -> Box(
@@ -537,7 +422,7 @@ fun App() {
                                     runCatching {
                                         deleteAdventure(adventure.id)
                                     }.onSuccess {
-                                        if (routedAdventureId == adventure.id) {
+                                        if (routedAdventureId == adventure.id || activeAdventure?.id == adventure.id) {
                                             clearActiveAdventure()
                                         }
                                         if (editingAdventure?.id == adventure.id) {
@@ -616,7 +501,6 @@ fun App() {
                                 isStartingAdventure = true
                                 startErrorMessage = null
                                 appScope.launch {
-                                    var adventureWithLocations = adventure
                                     if (!canStartAdventure(adventure.startPoint, currentLocation)) {
                                         startErrorMessage = "Du musst innerhalb von 10 m am Startpunkt sein."
                                         isStartingAdventure = false
@@ -633,31 +517,13 @@ fun App() {
                                         val attempt = getCurrentAttemptForAdventure(adventure.id, user.id)
                                             ?: startAdventureAttempt(adventure.id, user.id)
                                         val sortedLocations = locations.sortedBy { it.orderIndex }
-                                        adventureWithLocations = adventure.copy(locations = sortedLocations)
-                                        val targets = listOf(
-                                            AdventureProgressTarget(
-                                                name = "Startpunkt",
-                                                point = adventure.startPoint,
-                                            ),
-                                        ) + sortedLocations.map { location ->
-                                            AdventureProgressTarget(
-                                                name = location.name,
-                                                point = location.point,
-                                            )
-                                        }
-                                        routedAdventureId = adventure.id
-                                        routeTargets = targets.map { it.point }
-                                        activeAdventureForOverlay = adventureWithLocations
-                                        activeAdventureTargets = targets
-                                        currentAdventureTargetIndex = 0
-                                        reachedAdventureTarget = null
-                                        isActiveAdventureComplete = false
+                                        val adventureWithLocations = adventure.copy(locations = sortedLocations)
+                                        routedAdventureId = null
+                                        routeTargets = emptyList()
+                                        activeAdventure = adventureWithLocations
                                         activeAdventureAttempt = attempt
-                                        isAdventureOverlayExpanded = true
                                         selectedTab = BottomTab.Map
                                     }.onSuccess {
-                                        // Don't show game screen immediately - show the map first
-                                        // The game screen will be activated when the first waypoint is reached or if there's an error
                                         adventurePendingStart = null
                                         snackbarHostState.showSnackbar("Abenteuer gestartet: ${adventure.title}")
                                     }.onFailure { throwable ->
@@ -686,50 +552,6 @@ fun App() {
                             enabled = !isStartingAdventure,
                         ) {
                             Text("Abbrechen")
-                        }
-                    },
-                )
-            }
-
-            if (showEndAdventureConfirmation) {
-                AlertDialog(
-                    onDismissRequest = { showEndAdventureConfirmation = false },
-                    title = { Text("Abenteuer beenden") },
-                    text = {
-                        Text("Willst du das laufende Abenteuer wirklich beenden?")
-                    },
-                    confirmButton = {
-                        Button(
-                            onClick = {
-                                clearActiveAdventure()
-                                appScope.launch {
-                                    snackbarHostState.showSnackbar("Abenteuer beendet")
-                                }
-                            },
-                        ) {
-                            Text("Beenden")
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showEndAdventureConfirmation = false }) {
-                            Text("Abbrechen")
-                        }
-                    },
-                )
-            }
-
-            reachedAdventureTarget?.let { target ->
-                AlertDialog(
-                    onDismissRequest = { reachedAdventureTarget = null },
-                    title = {
-                        Text(if (target.reachedCount == 1) "Startpunkt erreicht" else "Ort erreicht")
-                    },
-                    text = {
-                        Text("${target.name} erreicht. Fortschritt: ${target.reachedCount}/${target.totalCount}.")
-                    },
-                    confirmButton = {
-                        Button(onClick = { reachedAdventureTarget = null }) {
-                            Text("Weiter")
                         }
                     },
                 )
@@ -1733,100 +1555,6 @@ private fun MapPointPickerScreen(
             selectedPoint = selectedPoint,
             onMapPointSelected = onPointSelected,
         )
-    }
-}
-
-@Composable
-private fun ActiveAdventureOverlay(
-    adventure: Adventure,
-    targets: List<AdventureProgressTarget>,
-    currentTargetIndex: Int,
-    currentLocation: GeoPoint?,
-    isExpanded: Boolean,
-    onToggleExpanded: () -> Unit,
-    onEndAdventure: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val totalTargets = targets.size
-    val reachedTargets = currentTargetIndex.coerceIn(0, totalTargets)
-    val currentTarget = targets.getOrNull(currentTargetIndex)
-    val currentTargetDistance = currentTarget?.point?.let { targetPoint ->
-        currentLocation?.distanceTo(targetPoint)
-    }
-    val canOpenProximityFeature = currentTarget != null && currentTargetDistance != null && currentTargetDistance < 40.0
-
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = adventure.title,
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        text = buildMetadataLabel(adventure).ifBlank { "Schwierigkeit und Dauer nicht gesetzt" },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                TextButton(onClick = onEndAdventure) {
-                    Text("Beenden")
-                }
-                TextButton(onClick = onToggleExpanded) {
-                    Text(if (isExpanded) "Ausblenden" else "Einblenden")
-                }
-            }
-
-            if (canOpenProximityFeature && currentTarget != null) {
-                ProximityAlertPopup(
-                    currentLocation = currentLocation,
-                    targetLocation = currentTarget.point,
-                    isVisible = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            AnimatedVisibility(
-                visible = isExpanded,
-                enter = slideInVertically { -it / 2 } + fadeIn(),
-                exit = slideOutVertically { -it / 2 } + fadeOut(),
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Fortschritt: $reachedTargets/$totalTargets Ziele erreicht",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    if (currentTarget != null) {
-                        Text(
-                            text = "Naechstes Ziel: ${currentTarget.name}",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Text(
-                            text = distanceLabel(currentTarget.point, currentLocation),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                    Text(
-                        text = "Erreiche jedes Ziel innerhalb von 10 m in der vorgegebenen Reihenfolge.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
     }
 }
 
