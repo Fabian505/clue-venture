@@ -865,13 +865,6 @@ fun AdventureGameScreen(
                         ) {
                             Text(if (isSubmittingFeedback) "Wird gesendet..." else "Feedback senden")
                         }
-
-                        TextButton(
-                            onClick = { leaveFeedbackScreen() },
-                            enabled = !isSubmittingFeedback,
-                        ) {
-                            Text("Ohne Feedback zurück zur Liste")
-                        }
                     }
                 }
 
