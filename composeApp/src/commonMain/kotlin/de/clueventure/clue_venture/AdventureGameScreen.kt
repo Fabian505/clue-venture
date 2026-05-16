@@ -672,7 +672,7 @@ fun AdventureGameScreen(
                                             fontSize = 18.sp,
                                             fontWeight = FontWeight.Bold,
                                         )
-                                        TextButton(
+                                        IconButton(
                                             onClick = {
                                                 showQuizSheet = false
                                                 currentQuizQuestion = null
@@ -680,7 +680,10 @@ fun AdventureGameScreen(
                                                 gameState = GameState.Navigating
                                             },
                                         ) {
-                                            Text("Schliessen")
+                                            Icon(
+                                                imageVector = CloseIcon,
+                                                contentDescription = "Frage schließen",
+                                            )
                                         }
                                     }
 

@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -261,6 +263,11 @@ private fun AnswerButton(
         isSelected && !showResult -> Color.White
         else -> MaterialTheme.colorScheme.onSurface
     }
+    val labelColor = when {
+        showResult && isCorrect -> Color(0xFF4CAF50)
+        showResult && isSelected && !isCorrect -> Color(0xFFFF5722)
+        else -> answerLabelColor(label)
+    }
 
     Box(
         modifier = Modifier
@@ -283,12 +290,9 @@ private fun AnswerButton(
         ) {
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(
-                        if (isSelected && !showResult) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.outline,
-                    )
-                    .padding(2.dp),
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(labelColor),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -306,6 +310,16 @@ private fun AnswerButton(
                 modifier = Modifier.weight(1f),
             )
         }
+    }
+}
+
+private fun answerLabelColor(label: String): Color {
+    return when (label) {
+        "A" -> Color(0xFF3F51B5)
+        "B" -> Color(0xFF00897B)
+        "C" -> Color(0xFFF9A825)
+        "D" -> Color(0xFFE64A19)
+        else -> Color(0xFF607D8B)
     }
 }
 

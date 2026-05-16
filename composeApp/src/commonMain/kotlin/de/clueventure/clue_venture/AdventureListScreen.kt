@@ -231,13 +231,6 @@ private fun AdventureCard(
                 }
             }
 
-            if (!canStart) {
-                Text(
-                    text = listStartButtonHint(startDistanceMeters),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
     }
 }
@@ -254,18 +247,6 @@ private fun listDistanceLabel(startPoint: GeoPoint, currentLocation: GeoPoint?):
     } else {
         "${distanceMeters.roundToInt()} m entfernt"
     }
-}
-
-private fun listStartButtonHint(distanceMeters: Double?): String {
-    if (distanceMeters == null) {
-        return "Abenteuerstart ist nur mit aktivem Standort moeglich."
-    }
-
-    if (distanceMeters <= ADVENTURE_LIST_START_MAX_DISTANCE_METERS) {
-        return "Du bist nah genug am Startpunkt."
-    }
-
-    return "Starte innerhalb von 10 m (aktuell: ${distanceMeters.roundToInt()} m)."
 }
 
 private fun buildListMetadataLabel(adventure: Adventure): String {
