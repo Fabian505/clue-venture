@@ -541,6 +541,34 @@ actual suspend fun finishAdventureAttempt(attemptId: Long): Int = withContext(Di
     }
 }
 
+actual suspend fun cancelAdventureAttempt(attemptId: Long): Unit = withContext(Dispatchers.IO) {
+    try {
+        val attempt = supabaseClient.from("adventure_attempts")
+            .select()
+            .decodeList<AdventureAttemptEntity>()
+            .find { it.id == attemptId } ?: throw IllegalStateException("Adventure attempt not found")
+
+        val now = Instant.now()
+        val startedAtMillis = attempt.startedAt.toLongOrNull() ?: now.toEpochMilli()
+        val timeSpentSeconds = ((now.toEpochMilli() - startedAtMillis) / 1000).toInt().coerceAtLeast(0)
+
+        supabaseClient.from("adventure_attempts")
+            .update(
+                AdventureAttemptCancelEntity(
+                    isCompleted = false,
+                    completedAt = now.toString(),
+                    timeSpentSeconds = timeSpentSeconds,
+                    pointsEarned = 0,
+                ),
+            ) {
+                filter { eq("id", attemptId) }
+            }
+    } catch (e: Exception) {
+        println("Error cancelling adventure attempt: ${e.message}")
+        throw e
+    }
+}
+
 actual suspend fun updateUserProgress(attemptId: Long, checkpointIndex: Int, userLocation: GeoPointState?): UserProgress = withContext(Dispatchers.IO) {
     try {
         val existingProgress = supabaseClient.from("user_progress")
@@ -607,7 +635,12 @@ actual suspend fun getCurrentAttemptForAdventure(adventureId: String, userId: St
         supabaseClient.from("adventure_attempts")
             .select()
             .decodeList<AdventureAttemptEntity>()
-            .find { it.adventureId == numericAdventureId && it.userId == userId && !it.isCompleted }
+            .find {
+                it.adventureId == numericAdventureId &&
+                    it.userId == userId &&
+                    !it.isCompleted &&
+                    it.completedAt == null
+            }
             ?.toAdventureAttempt()
     } catch (e: Exception) {
         println("Error fetching current attempt: ${e.message}")

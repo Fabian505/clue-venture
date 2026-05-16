@@ -179,6 +179,14 @@ data class AdventureAttemptFinishEntity(
 )
 
 @Serializable
+data class AdventureAttemptCancelEntity(
+    @SerialName("is_completed") val isCompleted: Boolean = false,
+    @SerialName("completed_at") val completedAt: String,
+    @SerialName("time_spent_seconds") val timeSpentSeconds: Int,
+    @SerialName("points_earned") val pointsEarned: Int = 0,
+)
+
+@Serializable
 data class UserAnswerInsertEntity(
     @SerialName("attempt_id") val attemptId: Long,
     @SerialName("question_id") val questionId: Long,

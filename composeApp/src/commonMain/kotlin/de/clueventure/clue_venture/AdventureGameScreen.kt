@@ -127,6 +127,8 @@ fun AdventureGameScreen(
     var correctAnswerCount by remember { mutableIntStateOf(0) }
     var hasFinishedAttempt by remember { mutableStateOf(false) }
     var isFinishingAttempt by remember { mutableStateOf(false) }
+    var isCancellingAttempt by remember { mutableStateOf(false) }
+    var isAdventureCancelled by remember { mutableStateOf(false) }
     var difficultyRating by remember { mutableIntStateOf(0) }
     var overallRating by remember { mutableIntStateOf(0) }
     var customFeedback by remember { mutableStateOf("") }
@@ -282,7 +284,13 @@ fun AdventureGameScreen(
 
     LaunchedEffect(gameState, currentAttempt?.id) {
         val attemptId = currentAttempt?.id
-        if (gameState == GameState.Complete && attemptId != null && !hasFinishedAttempt && !isFinishingAttempt) {
+        if (
+            gameState == GameState.Complete &&
+            attemptId != null &&
+            !hasFinishedAttempt &&
+            !isFinishingAttempt &&
+            !isAdventureCancelled
+        ) {
             isFinishingAttempt = true
             try {
                 pointsEarned = finishAdventureAttempt(attemptId)
@@ -295,6 +303,14 @@ fun AdventureGameScreen(
             } finally {
                 isFinishingAttempt = false
             }
+        }
+    }
+
+    fun leaveFeedbackScreen() {
+        if (isAdventureCancelled) {
+            callbacks.onClose()
+        } else {
+            callbacks.onAdventureComplete(pointsEarned)
         }
     }
 
@@ -316,7 +332,7 @@ fun AdventureGameScreen(
                 IconButton(
                     onClick = {
                         if (gameState == GameState.Complete && hasFinishedAttempt) {
-                            callbacks.onAdventureComplete(pointsEarned)
+                            leaveFeedbackScreen()
                         } else {
                             showCloseConfirmation = true
                         }
@@ -338,21 +354,58 @@ fun AdventureGameScreen(
                 text = {
                     Text(
                         "Du hast dieses Abenteuer noch nicht abgeschlossen. " +
-                            "Wenn du es jetzt beendest, wird dein aktueller Durchlauf geschlossen.",
+                            "Wenn du es jetzt beendest, kannst du danach noch Feedback geben.",
                     )
+                    finishError?.let {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = it,
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 14.sp,
+                        )
+                    }
                 },
                 confirmButton = {
                     Button(
                         onClick = {
-                            showCloseConfirmation = false
-                            callbacks.onClose()
+                            val attemptId = currentAttempt?.id
+                            if (attemptId == null) {
+                                showCloseConfirmation = false
+                                callbacks.onClose()
+                                return@Button
+                            }
+
+                            coroutineScope.launch {
+                                isCancellingAttempt = true
+                                finishError = null
+                                try {
+                                    cancelAdventureAttempt(attemptId)
+                                    showCloseConfirmation = false
+                                    isAdventureCancelled = true
+                                    hasFinishedAttempt = true
+                                    pointsEarned = 0
+                                    showQuizSheet = false
+                                    currentQuizQuestion = null
+                                    gameState = GameState.Complete
+                                } catch (e: Exception) {
+                                    finishError =
+                                        "Das Abenteuer konnte nicht beendet werden. Bitte versuche es erneut."
+                                    println("Error cancelling adventure: ${e.message}")
+                                } finally {
+                                    isCancellingAttempt = false
+                                }
+                            }
                         },
+                        enabled = !isCancellingAttempt,
                     ) {
-                        Text("Beenden")
+                        Text(if (isCancellingAttempt) "Wird beendet..." else "Beenden")
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showCloseConfirmation = false }) {
+                    TextButton(
+                        onClick = { showCloseConfirmation = false },
+                        enabled = !isCancellingAttempt,
+                    ) {
                         Text("Weiter spielen")
                     }
                 },
@@ -587,7 +640,7 @@ fun AdventureGameScreen(
                         verticalArrangement = Arrangement.Center,
                     ) {
                         Text(
-                            text = "🎉 Abenteuer abgeschlossen!",
+                            text = if (isAdventureCancelled) "Abenteuer beendet" else "🎉 Abenteuer abgeschlossen!",
                             fontSize = 24.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
@@ -595,18 +648,26 @@ fun AdventureGameScreen(
 
                         Spacer(modifier = Modifier.height(24.dp))
 
-                        Text(
-                            text = if (isFinishingAttempt) "Punkte werden berechnet..." else "Punkte: $pointsEarned",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
+                        if (isAdventureCancelled) {
+                            Text(
+                                text = "Danke, dass du das Abenteuer ausprobiert hast.",
+                                fontSize = 16.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            Text(
+                                text = if (isFinishingAttempt) "Punkte werden berechnet..." else "Punkte: $pointsEarned",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
 
-                        Text(
-                            text = "Richtige Antworten: $correctAnswerCount",
-                            fontSize = 16.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                            Text(
+                                text = "Richtige Antworten: $correctAnswerCount",
+                                fontSize = 16.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
 
                         Spacer(modifier = Modifier.height(24.dp))
 
@@ -684,7 +745,7 @@ fun AdventureGameScreen(
                                                 customFeedback = customFeedback.trim().ifBlank { null },
                                             ),
                                         )
-                                        callbacks.onAdventureComplete(pointsEarned)
+                                        leaveFeedbackScreen()
                                     } catch (e: Exception) {
                                         feedbackError =
                                             "Feedback konnte nicht gespeichert werden. Bitte versuche es erneut."
@@ -702,7 +763,7 @@ fun AdventureGameScreen(
                         }
 
                         TextButton(
-                            onClick = { callbacks.onAdventureComplete(pointsEarned) },
+                            onClick = { leaveFeedbackScreen() },
                             enabled = !isSubmittingFeedback,
                         ) {
                             Text("Ohne Feedback zurück zur Liste")

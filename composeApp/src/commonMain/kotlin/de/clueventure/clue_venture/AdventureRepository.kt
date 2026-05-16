@@ -54,6 +54,8 @@ expect suspend fun startAdventureAttempt(adventureId: String, userId: String): A
 
 expect suspend fun finishAdventureAttempt(attemptId: Long): Int
 
+expect suspend fun cancelAdventureAttempt(attemptId: Long)
+
 expect suspend fun updateUserProgress(attemptId: Long, checkpointIndex: Int, userLocation: GeoPointState?): UserProgress
 
 expect suspend fun getUserProgress(attemptId: Long): UserProgress?
