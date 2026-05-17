@@ -1,10 +1,15 @@
 package de.clueventure.clue_venture
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.util.Log
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.postgrest.query.Order
+import io.github.jan.supabase.postgrest.query.Columns
+import io.github.jan.supabase.storage.storage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -68,10 +73,33 @@ private fun clearCurrentUser() {
 }
 
 actual suspend fun getAdventures(): List<Adventure> = withContext(Dispatchers.IO) {
-    supabaseClient.from("adventures")
-        .select()
+    val userId = loadCurrentUser()?.id
+    val adventures = supabaseClient.from("adventures")
+        .select {
+            filter {
+                if (userId != null) {
+                    or {
+                        eq("is_public", true)
+                        eq("created_by", userId)
+                    }
+                } else {
+                    eq("is_public", true)
+                }
+            }
+        }
         .decodeList<AdventureEntity>()
-        .map { it.toAdventure() }
+
+    val locationCountById = runCatching {
+        supabaseClient.from("adventure_locations")
+            .select(columns = Columns.list("adventure_id"))
+            .decodeList<AdventureLocationAdventureIdEntity>()
+            .groupingBy { it.adventureId }
+            .eachCount()
+    }.getOrDefault(emptyMap())
+
+    adventures.map { entity ->
+        entity.toAdventure().copy(locationCount = locationCountById[entity.id] ?: 0)
+    }
 }
 
 actual suspend fun createAdventure(draft: AdventureDraft): Adventure = withContext(Dispatchers.IO) {
@@ -84,13 +112,16 @@ actual suspend fun createAdventure(draft: AdventureDraft): Adventure = withConte
                 startLongitude = draft.startPoint.longitude,
                 difficulty = draft.difficulty,
                 estimatedDurationMinutes = draft.estimatedDurationMinutes,
+                completionPoints = 0,
+                isPublic = false,
+                createdBy = loadCurrentUser()?.id,
             ),
         ) {
             select()
         }
         .decodeSingle<AdventureEntity>()
 
-    if (draft.locations.isNotEmpty()) {
+    val createdLocations = if (draft.locations.isNotEmpty()) {
         supabaseClient.from("adventure_locations")
             .insert(
                 draft.locations.mapIndexed { index, location ->
@@ -100,19 +131,63 @@ actual suspend fun createAdventure(draft: AdventureDraft): Adventure = withConte
                         latitude = location.point.latitude,
                         longitude = location.point.longitude,
                         orderIndex = index,
+                        pointValue = location.pointValue,
+                        timeLimitSeconds = location.timeLimitSeconds,
                     )
                 },
-            )
+            ) { select() }
+            .decodeList<AdventureLocationEntity>()
+            .sortedBy { it.orderIndex }
+    } else emptyList()
+
+    // Insert hints for each location
+    val hintInserts = draft.locations.flatMapIndexed { index, locationDraft ->
+        val locationId = createdLocations.getOrNull(index)?.id ?: return@flatMapIndexed emptyList()
+        locationDraft.hints
+            .filter { it.text.isNotBlank() || it.imageUrl != null }
+            .map { hint ->
+                HintInsertEntity(
+                    locationId = locationId,
+                    hintIndex = hint.hintIndex,
+                    text = hint.text,
+                    pointCost = hint.pointCost,
+                    imageUrl = hint.imageUrl,
+                )
+            }
+    }
+    if (hintInserts.isNotEmpty()) {
+        supabaseClient.from("hints").insert(hintInserts)
+    }
+
+    // Insert quiz questions and answers
+    draft.quizQuestions.forEachIndexed { questionIndex, questionDraft ->
+        val createdQuestion = supabaseClient.from("quiz_questions")
+            .insert(
+                QuizQuestionInsertEntity(
+                    adventureId = createdAdventure.id,
+                    questionText = questionDraft.questionText,
+                    orderIndex = questionIndex,
+                ),
+            ) { select() }
+            .decodeSingle<QuizQuestionEntity>()
+
+        val answerInserts = questionDraft.answers
+            .filter { it.answerText.isNotBlank() }
+            .map { answerDraft ->
+                QuizAnswerInsertEntity(
+                    questionId = createdQuestion.id,
+                    answerText = answerDraft.answerText,
+                    isCorrect = answerDraft.isCorrect,
+                    answerOrder = answerDraft.answerOrder,
+                )
+            }
+        if (answerInserts.isNotEmpty()) {
+            supabaseClient.from("quiz_answers").insert(answerInserts)
+        }
     }
 
     createdAdventure.toAdventure().copy(
-        locations = draft.locations.mapIndexed { index, location ->
-            AdventureLocation(
-                name = location.name,
-                point = location.point,
-                orderIndex = index,
-            )
-        },
+        locations = createdLocations.map { it.toAdventureLocation() },
     )
 }
 
@@ -305,6 +380,7 @@ actual suspend fun updateAdventure(adventureId: String, draft: AdventureMetadata
                 startLongitude = draft.startPoint.longitude,
                 difficulty = draft.difficulty,
                 estimatedDurationMinutes = draft.estimatedDurationMinutes,
+                isPublic = draft.isPublic,
             ),
         ) {
             filter {
@@ -337,19 +413,16 @@ actual suspend fun appendAdventureLocations(
             latitude = location.point.latitude,
             longitude = location.point.longitude,
             orderIndex = nextOrderIndex + index,
+            pointValue = location.pointValue,
+            timeLimitSeconds = location.timeLimitSeconds,
         )
     }
 
     supabaseClient.from("adventure_locations")
-        .insert(locationInserts)
-
-    locationInserts.map { inserted ->
-        AdventureLocation(
-            name = inserted.name,
-            point = GeoPoint(latitude = inserted.latitude, longitude = inserted.longitude),
-            orderIndex = inserted.orderIndex,
-        )
-    }
+        .insert(locationInserts) { select() }
+        .decodeList<AdventureLocationEntity>()
+        .sortedBy { it.orderIndex }
+        .map { it.toAdventureLocation() }
 }
 
 // ============================================================================
@@ -806,28 +879,91 @@ actual suspend fun updateUserPoints(userId: String, pointsDelta: Int): Unit = wi
     Unit
 }
 
-actual suspend fun getLeaderboard(limit: Int): List<Pair<String, Int>> = withContext(Dispatchers.IO) {
-    runCatching {
-        val profiles = supabaseClient.from("user_profiles")
-            .select {
-                order("total_points", Order.DESCENDING)
-                limit(limit.toLong())
-            }
-            .decodeList<UserProfileEntity>()
-
-        val userIds = profiles.map { it.userId }.toSet()
-        val displayNameById = supabaseClient.from("users")
-            .select()
-            .decodeList<UserEntity>()
-            .filter { it.id in userIds }
-            .associate { it.id to (it.username ?: it.email) }
-
-        profiles.map { profile ->
-            (displayNameById[profile.userId] ?: profile.userId) to profile.totalPoints
+actual suspend fun saveHintsForLocation(locationId: Long, hints: List<HintDraft>): Unit = withContext(Dispatchers.IO) {
+    // Delete all existing hints for this location, then insert non-blank/non-empty ones
+    supabaseClient.from("hints")
+        .delete {
+            filter { eq("location_id", locationId) }
         }
-    }.onFailure { e ->
-        println("Error fetching leaderboard: ${e.message}")
-    }.getOrDefault(emptyList())
+
+    val toInsert = hints.filter { it.text.isNotBlank() || it.imageUrl != null }
+    if (toInsert.isNotEmpty()) {
+        supabaseClient.from("hints")
+            .insert(toInsert.map { hint ->
+                HintInsertEntity(
+                    locationId = locationId,
+                    hintIndex = hint.hintIndex,
+                    text = hint.text,
+                    pointCost = hint.pointCost,
+                    imageUrl = hint.imageUrl,
+                )
+            })
+    }
+    Unit
+}
+
+actual suspend fun uploadHintImage(imageBytes: ByteArray): String = withContext(Dispatchers.IO) {
+    val fileName = "hint_${System.currentTimeMillis()}_${(1000..9999).random()}.jpg"
+    supabaseClient.storage.from("hint-images").upload(fileName, imageBytes)
+    supabaseClient.storage.from("hint-images").publicUrl(fileName)
+}
+
+actual suspend fun createQuizQuestion(adventureId: String, orderIndex: Int, draft: QuizQuestionDraft): QuizQuestion = withContext(Dispatchers.IO) {
+    val numericAdventureId = adventureId.toLong()
+
+    val createdQuestion = supabaseClient.from("quiz_questions")
+        .insert(
+            QuizQuestionInsertEntity(
+                adventureId = numericAdventureId,
+                questionText = draft.questionText,
+                orderIndex = orderIndex,
+            ),
+        ) { select() }
+        .decodeSingle<QuizQuestionEntity>()
+
+    val answerInserts = draft.answers
+        .filter { it.answerText.isNotBlank() }
+        .map { answerDraft ->
+            QuizAnswerInsertEntity(
+                questionId = createdQuestion.id,
+                answerText = answerDraft.answerText,
+                isCorrect = answerDraft.isCorrect,
+                answerOrder = answerDraft.answerOrder,
+            )
+        }
+
+    val answers = if (answerInserts.isNotEmpty()) {
+        supabaseClient.from("quiz_answers")
+            .insert(answerInserts) { select() }
+            .decodeList<QuizAnswerEntity>()
+            .map { it.toQuizAnswer() }
+    } else emptyList()
+
+    createdQuestion.toQuizQuestion(answers)
+}
+
+actual suspend fun deleteQuizQuestion(questionId: Long): Unit = withContext(Dispatchers.IO) {
+    // Delete answers first in case there is no CASCADE on the FK
+    supabaseClient.from("quiz_answers")
+        .delete {
+            filter { eq("question_id", questionId) }
+        }
+    supabaseClient.from("quiz_questions")
+        .delete {
+            filter { eq("id", questionId) }
+        }
+    Unit
+}
+
+actual suspend fun getLeaderboard(period: LeaderboardPeriod, limit: Int): List<Pair<String, Int>> = withContext(Dispatchers.IO) {
+    supabaseClient.postgrest.rpc(
+        "get_leaderboard_by_period",
+        buildJsonObject {
+            put("p_period", period.name.lowercase())
+            put("p_limit", limit)
+        },
+    ).decodeList<LeaderboardEntryEntity>()
+        .map { it.displayName to it.points.toInt() }
 }
 
 actual suspend fun submitAdventureFeedback(draft: AdventureFeedbackDraft): AdventureFeedback = withContext(Dispatchers.IO) {
@@ -877,4 +1013,30 @@ actual suspend fun submitAdventureFeedback(draft: AdventureFeedbackDraft): Adven
         e.printStackTrace()
         throw e
     }
+}
+
+// ============================================================================
+// CONNECTIVITY IMPLEMENTATIONS
+// ============================================================================
+
+actual fun isNetworkAvailable(): Boolean {
+    val cm = AndroidSessionStorage.context
+        .getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val network = cm.activeNetwork ?: return false
+    val capabilities = cm.getNetworkCapabilities(network) ?: return false
+    return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+}
+
+actual fun observeConnectivity(onChange: (isConnected: Boolean) -> Unit): () -> Unit {
+    val cm = AndroidSessionStorage.context
+        .getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val callback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) = onChange(true)
+        override fun onLost(network: Network) = onChange(false)
+    }
+    val request = NetworkRequest.Builder()
+        .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        .build()
+    cm.registerNetworkCallback(request, callback)
+    return { cm.unregisterNetworkCallback(callback) }
 }

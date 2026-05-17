@@ -13,6 +13,8 @@ data class AdventureEntity(
     val difficulty: String? = null,
     @SerialName("estimated_duration_minutes") val estimatedDurationMinutes: Int? = null,
     @SerialName("completion_points") val completionPoints: Int = 0,
+    @SerialName("is_public") val isPublic: Boolean = false,
+    @SerialName("created_by") val createdBy: String? = null,
 )
 
 @Serializable
@@ -23,7 +25,9 @@ data class AdventureInsertEntity(
     @SerialName("start_longitude") val startLongitude: Double,
     val difficulty: String? = null,
     @SerialName("estimated_duration_minutes") val estimatedDurationMinutes: Int? = null,
-    @SerialName("completion_points") val completionPoints: Int = 0,
+    @SerialName("completion_points") val completionPoints: Int,
+    @SerialName("is_public") val isPublic: Boolean,
+    @SerialName("created_by") val createdBy: String?,
 )
 
 @Serializable
@@ -34,7 +38,12 @@ data class AdventureUpdateEntity(
     @SerialName("start_longitude") val startLongitude: Double,
     val difficulty: String? = null,
     @SerialName("estimated_duration_minutes") val estimatedDurationMinutes: Int? = null,
-    @SerialName("completion_points") val completionPoints: Int = 0,
+    @SerialName("is_public") val isPublic: Boolean,
+)
+
+@Serializable
+data class AdventureLocationAdventureIdEntity(
+    @SerialName("adventure_id") val adventureId: Long,
 )
 
 @Serializable
@@ -44,7 +53,7 @@ data class AdventureLocationInsertEntity(
     val latitude: Double,
     val longitude: Double,
     @SerialName("order_index") val orderIndex: Int,
-    @SerialName("point_value") val pointValue: Int = 0,
+    @SerialName("point_value") val pointValue: Int,
     @SerialName("time_limit_seconds") val timeLimitSeconds: Int? = null,
 )
 
@@ -71,6 +80,7 @@ data class HintEntity(
     @SerialName("hint_index") val hintIndex: Int,
     val text: String,
     @SerialName("point_cost") val pointCost: Int = 0,
+    @SerialName("image_url") val imageUrl: String? = null,
 )
 
 @Serializable
@@ -78,7 +88,8 @@ data class HintInsertEntity(
     @SerialName("location_id") val locationId: Long,
     @SerialName("hint_index") val hintIndex: Int,
     val text: String,
-    @SerialName("point_cost") val pointCost: Int = 0,
+    @SerialName("point_cost") val pointCost: Int,
+    @SerialName("image_url") val imageUrl: String? = null,
 )
 
 @Serializable
@@ -108,6 +119,22 @@ data class QuizAnswerEntity(
     @SerialName("answer_order") val answerOrder: Int,
 )
 
+@Serializable
+data class QuizQuestionInsertEntity(
+    @SerialName("adventure_id") val adventureId: Long,
+    @SerialName("question_text") val questionText: String,
+    @SerialName("order_index") val orderIndex: Int,
+    @SerialName("question_type") val questionType: String = "multiple_choice",
+)
+
+@Serializable
+data class QuizAnswerInsertEntity(
+    @SerialName("question_id") val questionId: Long,
+    @SerialName("answer_text") val answerText: String,
+    @SerialName("is_correct") val isCorrect: Boolean,
+    @SerialName("answer_order") val answerOrder: Int,
+)
+
 // ============================================================================
 // USER & AUTHENTICATION ENTITIES
 // ============================================================================
@@ -128,6 +155,12 @@ data class UserProfileEntity(
     @SerialName("adventures_completed") val adventuresCompleted: Int = 0,
     @SerialName("adventures_started") val adventuresStarted: Int = 0,
     @SerialName("last_updated") val lastUpdated: String,
+)
+
+@Serializable
+data class LeaderboardEntryEntity(
+    @SerialName("display_name") val displayName: String,
+    @SerialName("points") val points: Long,
 )
 
 // Insert DTOs for safe serialization
@@ -280,6 +313,8 @@ fun AdventureEntity.toAdventure(): Adventure = Adventure(
     difficulty = difficulty,
     estimatedDurationMinutes = estimatedDurationMinutes,
     completionPoints = completionPoints,
+    isPublic = isPublic,
+    createdBy = createdBy,
 )
 
 fun AdventureLocationEntity.toAdventureLocation(hints: List<Hint> = emptyList()): AdventureLocation = AdventureLocation(
@@ -298,4 +333,5 @@ fun HintEntity.toHint(): Hint = Hint(
     hintIndex = hintIndex,
     text = text,
     pointCost = pointCost,
+    imageUrl = imageUrl,
 )

@@ -25,6 +25,9 @@ data class Adventure(
     val estimatedDurationMinutes: Int? = null,
     val locations: List<AdventureLocation> = emptyList(),
     val completionPoints: Int = 0,
+    val locationCount: Int = 0,
+    val isPublic: Boolean = false,
+    val createdBy: String? = null,
 )
 
 data class AdventureLocation(
@@ -44,6 +47,7 @@ data class AdventureDraft(
     val difficulty: String?,
     val estimatedDurationMinutes: Int?,
     val locations: List<AdventureLocationDraft>,
+    val quizQuestions: List<QuizQuestionDraft> = emptyList(),
 )
 
 data class AdventureMetadataDraft(
@@ -52,11 +56,33 @@ data class AdventureMetadataDraft(
     val startPoint: GeoPoint,
     val difficulty: String?,
     val estimatedDurationMinutes: Int?,
+    val isPublic: Boolean = false,
 )
 
 data class AdventureLocationDraft(
     val name: String,
     val point: GeoPoint,
+    val pointValue: Int = 0,
+    val timeLimitSeconds: Int? = null,
+    val hints: List<HintDraft> = emptyList(),
+)
+
+data class HintDraft(
+    val hintIndex: Int,
+    val text: String,
+    val pointCost: Int = 0,
+    val imageUrl: String? = null,
+)
+
+data class QuizAnswerDraft(
+    val answerText: String,
+    val isCorrect: Boolean,
+    val answerOrder: Int,
+)
+
+data class QuizQuestionDraft(
+    val questionText: String,
+    val answers: List<QuizAnswerDraft>,
 )
 
 fun GeoPoint.distanceTo(other: GeoPoint): Double {
@@ -199,6 +225,7 @@ data class Hint(
     val hintIndex: Int,     // 0 = free (shown on arrival), 1–2 = costs points
     val text: String,
     val pointCost: Int = 0,
+    val imageUrl: String? = null,
 )
 
 // ============================================================================
@@ -492,3 +519,5 @@ fun calculateAvailableQuestionCount(
     // unlockedQuestionSlots is not considered here - all questions are available from the start
     return maxOf(0, totalQuestions - answeredQuestionCount)
 }
+
+enum class LeaderboardPeriod { ALL, WEEK, MONTH }

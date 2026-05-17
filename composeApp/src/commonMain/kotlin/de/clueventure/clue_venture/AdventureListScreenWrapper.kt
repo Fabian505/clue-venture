@@ -1,11 +1,6 @@
 package de.clueventure.clue_venture
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 
 @Composable
@@ -14,34 +9,22 @@ fun AdventureListScreenWrapper(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     currentLocation: GeoPoint?,
-    refreshKey: Int,
+    currentUserId: String?,
+    adventures: List<Adventure>,
+    isLoading: Boolean,
+    loadError: Boolean,
     onNavigateToStart: (Adventure) -> Unit,
     onStartAdventure: (Adventure) -> Unit,
     onCreateAdventure: () -> Unit,
     onEditAdventure: (Adventure) -> Unit,
     onDeleteAdventure: (Adventure) -> Unit,
 ) {
-    var adventures by remember { mutableStateOf<List<Adventure>>(listOf()) }
-    var isLoading by remember { mutableStateOf(true) }
-    var loadError by remember { mutableStateOf(false) }
-
-    LaunchedEffect(refreshKey) {
-        isLoading = true
-        loadError = false
-        try {
-            adventures = getAdventures()
-        } catch (t: Throwable) {
-            adventures = emptyList()
-            loadError = true
-        }
-        isLoading = false
-    }
-
     AdventureListScreen(
         modifier = modifier,
         searchQuery = searchQuery,
         onSearchQueryChange = onSearchQueryChange,
         currentLocation = currentLocation,
+        currentUserId = currentUserId,
         onNavigateToStart = onNavigateToStart,
         onStartAdventure = onStartAdventure,
         onCreateAdventure = onCreateAdventure,

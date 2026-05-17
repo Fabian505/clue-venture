@@ -165,12 +165,23 @@ DROP POLICY IF EXISTS "user_profiles_updatable" ON public.user_profiles;
 CREATE POLICY "user_profiles_updatable" ON public.user_profiles
     FOR UPDATE USING (true) WITH CHECK (true);
 
--- Policy: Users can read public adventure data
+-- Policy: Users can read and write quiz data
+-- The app uses custom auth (not Supabase Auth), so access is governed by app logic.
+DROP POLICY IF EXISTS "quiz_questions_readable" ON public.quiz_questions;
 CREATE POLICY "quiz_questions_readable" ON public.quiz_questions
     FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "quiz_questions_writable" ON public.quiz_questions;
+CREATE POLICY "quiz_questions_writable" ON public.quiz_questions
+    FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "quiz_answers_readable" ON public.quiz_answers;
 CREATE POLICY "quiz_answers_readable" ON public.quiz_answers
     FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "quiz_answers_writable" ON public.quiz_answers;
+CREATE POLICY "quiz_answers_writable" ON public.quiz_answers
+    FOR ALL USING (true) WITH CHECK (true);
 
 -- Policy: The current app manages custom users client-side instead of Supabase Auth.
 -- These tables must be accessible to the anon client; ownership is enforced by app logic.
@@ -202,6 +213,23 @@ ALTER TABLE public.quiz_questions
     DROP CONSTRAINT IF EXISTS quiz_questions_adventure_id_fkey,
     ADD CONSTRAINT quiz_questions_adventure_id_fkey
         FOREIGN KEY (adventure_id) REFERENCES public.adventures(id) ON DELETE CASCADE;
+
+-- ============================================================================
+-- FUNCTIONS
+-- ============================================================================
+
+-- Atomic point increment — avoids read-then-write race conditions.
+CREATE OR REPLACE FUNCTION public.increment_user_points(p_user_id UUID, p_delta INT)
+RETURNS VOID
+LANGUAGE SQL
+AS $$
+    UPDATE public.user_profiles
+    SET total_points = total_points + p_delta
+    WHERE user_id = p_user_id;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.increment_user_points(UUID, INT) TO anon;
+GRANT EXECUTE ON FUNCTION public.increment_user_points(UUID, INT) TO authenticated;
 
 -- ============================================================================
 -- DONE

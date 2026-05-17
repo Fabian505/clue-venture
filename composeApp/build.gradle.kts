@@ -30,6 +30,8 @@ kotlin {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.androidx.activity.compose)
             implementation("com.google.android.gms:play-services-location:21.3.0")
+            implementation(libs.storage.kt)
+            implementation(libs.coil3.network.okhttp)
         }
         commonMain.dependencies {
             implementation(libs.compose.runtime)
@@ -42,6 +44,7 @@ kotlin {
             implementation(libs.androidx.lifecycle.runtimeCompose)
             implementation(libs.supabase.kt)
             implementation(libs.postgrest.kt)
+            implementation(libs.coil3.compose)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

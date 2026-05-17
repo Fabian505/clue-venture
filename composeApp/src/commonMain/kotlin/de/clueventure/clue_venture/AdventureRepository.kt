@@ -74,8 +74,28 @@ expect suspend fun submitAdventureFeedback(draft: AdventureFeedbackDraft): Adven
 
 expect suspend fun getHints(locationId: Long): List<Hint>
 
+expect suspend fun saveHintsForLocation(locationId: Long, hints: List<HintDraft>)
+
+expect suspend fun uploadHintImage(imageBytes: ByteArray): String
+
 expect suspend fun getUserPoints(userId: String): Int
 
 expect suspend fun updateUserPoints(userId: String, pointsDelta: Int)
 
-expect suspend fun getLeaderboard(limit: Int = 50): List<Pair<String, Int>>
+expect suspend fun getLeaderboard(period: LeaderboardPeriod = LeaderboardPeriod.ALL, limit: Int = 50): List<Pair<String, Int>>
+
+// ============================================================================
+// QUIZ MANAGEMENT REPOSITORY FUNCTIONS
+// ============================================================================
+
+expect suspend fun createQuizQuestion(adventureId: String, orderIndex: Int, draft: QuizQuestionDraft): QuizQuestion
+
+expect suspend fun deleteQuizQuestion(questionId: Long)
+
+// ============================================================================
+// CONNECTIVITY
+// ============================================================================
+
+expect fun isNetworkAvailable(): Boolean
+
+expect fun observeConnectivity(onChange: (isConnected: Boolean) -> Unit): () -> Unit

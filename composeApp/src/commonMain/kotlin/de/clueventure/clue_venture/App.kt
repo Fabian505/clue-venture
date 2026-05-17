@@ -1,5 +1,6 @@
 package de.clueventure.clue_venture
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -193,10 +196,29 @@ fun App() {
     var activeAdventure by remember { mutableStateOf<Adventure?>(null) }
     var activeAdventureAttempt by remember { mutableStateOf<AdventureAttempt?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
+    var isOnline by remember { mutableStateOf(true) }
+    var adventures by remember { mutableStateOf<List<Adventure>>(emptyList()) }
+    var isLoadingAdventures by remember { mutableStateOf(true) }
+    var loadAdventuresError by remember { mutableStateOf(false) }
+
+    DisposableEffect(Unit) {
+        isOnline = isNetworkAvailable()
+        val unregister = observeConnectivity { connected -> isOnline = connected }
+        onDispose { unregister() }
+    }
 
     LaunchedEffect(Unit) {
         currentUser = getCurrentUser()
         isSessionLoaded = true
+    }
+
+    LaunchedEffect(adventureRefreshKey) {
+        isLoadingAdventures = true
+        loadAdventuresError = false
+        runCatching { getAdventures() }
+            .onSuccess { adventures = it }
+            .onFailure { adventures = emptyList(); loadAdventuresError = true }
+        isLoadingAdventures = false
     }
 
     DisposableEffect(currentUser?.id, activeAdventure?.id) {
@@ -270,6 +292,11 @@ fun App() {
                 snackbarHost = {
                     SnackbarHost(hostState = snackbarHostState)
                 },
+                topBar = {
+                    if (!isOnline) {
+                        OfflineBanner()
+                    }
+                },
                 bottomBar = {
                     if (editingAdventure == null && !showCreateAdventureDialog && activeAdventure == null) {
                         NavigationBar(
@@ -303,6 +330,7 @@ fun App() {
                         userId = currentUser?.id ?: return@let,
                         currentLocation = currentLocation,
                         initialAttempt = activeAdventureAttempt,
+                        snackbarHostState = snackbarHostState,
                         callbacks = AdventureGameCallbacks(
                             onAdventureComplete = { points ->
                                 appScope.launch {
@@ -331,6 +359,7 @@ fun App() {
                                 .padding(innerPadding),
                             adventure = adventure,
                             currentLocation = currentLocation,
+                            snackbarHostState = snackbarHostState,
                             onDismiss = { editingAdventure = null },
                             onAdventureUpdated = {
                                 adventureRefreshKey += 1
@@ -342,6 +371,7 @@ fun App() {
                                 .fillMaxSize()
                                 .padding(innerPadding),
                             currentLocation = currentLocation,
+                            snackbarHostState = snackbarHostState,
                             onDismiss = { showCreateAdventureDialog = false },
                             onAdventureCreated = {
                                 showCreateAdventureDialog = false
@@ -356,7 +386,10 @@ fun App() {
                             searchQuery = searchQuery,
                             onSearchQueryChange = { searchQuery = it },
                             currentLocation = currentLocation,
-                            refreshKey = adventureRefreshKey,
+                            currentUserId = currentUser?.id,
+                            adventures = adventures,
+                            isLoading = isLoadingAdventures,
+                            loadError = loadAdventuresError,
                             onNavigateToStart = { adventure ->
                                 routedAdventureId = adventure.id
                                 routeTargets = listOf(adventure.startPoint)
@@ -386,6 +419,11 @@ fun App() {
                                 modifier = Modifier.fillMaxSize(),
                                 routeTargets = routeTargets,
                                 onCurrentLocationChanged = { currentLocation = it },
+                                adventurePins = if (routeTargets.isEmpty()) adventures else emptyList(),
+                                onAdventurePinClicked = { adventure ->
+                                    routedAdventureId = adventure.id
+                                    routeTargets = listOf(adventure.startPoint)
+                                },
                             )
                         }
 
@@ -586,6 +624,7 @@ fun App() {
 private fun CreateAdventureScreen(
     modifier: Modifier = Modifier,
     currentLocation: GeoPoint?,
+    snackbarHostState: SnackbarHostState,
     onDismiss: () -> Unit,
     onAdventureCreated: (Adventure) -> Unit,
 ) {
@@ -606,6 +645,9 @@ private fun CreateAdventureScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var mapPickerTarget by remember { mutableStateOf<MapPickerTarget?>(null) }
     var mapPickedPoint by remember { mutableStateOf<GeoPoint?>(null) }
+    var expandedHintSections by remember { mutableStateOf(emptySet<String>()) }
+    var quizQuestions by remember { mutableStateOf(listOf<QuizQuestionDraft>()) }
+    var quizEditorState by remember { mutableStateOf<QuizEditorState?>(null) }
 
     fun addLocation() {
         val parsedLatitude = locationLatitude.toDoubleOrNull()
@@ -675,12 +717,18 @@ private fun CreateAdventureScreen(
                                 difficulty = difficulty.takeIf { it.isNotBlank() }?.trim(),
                                 estimatedDurationMinutes = calculatedDurationMinutes,
                                 locations = locations,
+                                quizQuestions = quizQuestions,
                             ),
                         )
                     }.onSuccess { createdAdventure ->
                         onAdventureCreated(createdAdventure)
                     }.onFailure { throwable ->
-                        errorMessage = throwable.message ?: "Abenteuer konnte nicht gespeichert werden."
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                throwable.message ?: "Abenteuer konnte nicht gespeichert werden.",
+                                withDismissAction = true,
+                            )
+                        }
                     }
                     isSubmitting = false
                 }
@@ -724,6 +772,25 @@ private fun CreateAdventureScreen(
                 errorMessage = null
                 mapPickerTarget = null
                 mapPickedPoint = null
+            },
+        )
+        return
+    }
+
+    if (quizEditorState != null) {
+        QuizQuestionEditorScreen(
+            modifier = modifier,
+            initialDraft = (quizEditorState as? QuizEditorState.Edit)?.draft,
+            onDismiss = { quizEditorState = null },
+            onConfirm = { draft ->
+                when (val state = quizEditorState) {
+                    QuizEditorState.New -> quizQuestions = quizQuestions + draft
+                    is QuizEditorState.Edit -> quizQuestions = quizQuestions.mapIndexed { i, q ->
+                        if (i == state.index) draft else q
+                    }
+                    null -> Unit
+                }
+                quizEditorState = null
             },
         )
         return
@@ -945,41 +1012,203 @@ private fun CreateAdventureScreen(
                 itemsIndexed(
                     items = locations,
                     key = { _, location -> location.name + location.point.latitude + location.point.longitude }) { index, location ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = "${index + 1}. ${location.name}",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(
-                                onClick = {
-                                    if (index > 0) {
-                                        locations = locations.move(index, index - 1)
-                                    }
-                                },
-                                enabled = !isSubmitting && index > 0,
-                            ) {
-                                Text("Hoch")
+                    val locationKey = "${location.name}${location.point.latitude}${location.point.longitude}"
+                    val hintsExpanded = locationKey in expandedHintSections
+                    var uploadingHintIndex by remember { mutableStateOf<Int?>(null) }
+                    val pickImage0 = rememberImagePicker { bytes ->
+                        if (bytes != null) scope.launch {
+                            uploadingHintIndex = 0
+                            runCatching { uploadHintImage(bytes) }.onSuccess { url ->
+                                locations = locations.withUpdatedLocationHintImage(index, 0, url)
                             }
-                            TextButton(
-                                onClick = {
-                                    if (index < locations.lastIndex) {
-                                        locations = locations.move(index, index + 1)
-                                    }
-                                },
-                                enabled = !isSubmitting && index < locations.lastIndex,
-                            ) {
-                                Text("Runter")
+                            uploadingHintIndex = null
+                        }
+                    }
+                    val pickImage1 = rememberImagePicker { bytes ->
+                        if (bytes != null) scope.launch {
+                            uploadingHintIndex = 1
+                            runCatching { uploadHintImage(bytes) }.onSuccess { url ->
+                                locations = locations.withUpdatedLocationHintImage(index, 1, url)
                             }
-                            TextButton(
-                                onClick = { locations = locations - location },
-                                enabled = !isSubmitting,
+                            uploadingHintIndex = null
+                        }
+                    }
+                    val pickImage2 = rememberImagePicker { bytes ->
+                        if (bytes != null) scope.launch {
+                            uploadingHintIndex = 2
+                            runCatching { uploadHintImage(bytes) }.onSuccess { url ->
+                                locations = locations.withUpdatedLocationHintImage(index, 2, url)
+                            }
+                            uploadingHintIndex = null
+                        }
+                    }
+                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "${index + 1}. ${location.name}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(onClick = {
+                                    expandedHintSections = if (hintsExpanded)
+                                        expandedHintSections - locationKey
+                                    else
+                                        expandedHintSections + locationKey
+                                }) {
+                                    Text(if (hintsExpanded) "Hints ▲" else "Hints ▼")
+                                }
+                                TextButton(
+                                    onClick = {
+                                        if (index > 0) locations = locations.move(index, index - 1)
+                                    },
+                                    enabled = !isSubmitting && index > 0,
+                                ) { Text("Hoch") }
+                                TextButton(
+                                    onClick = {
+                                        if (index < locations.lastIndex) locations = locations.move(index, index + 1)
+                                    },
+                                    enabled = !isSubmitting && index < locations.lastIndex,
+                                ) { Text("Runter") }
+                                TextButton(
+                                    onClick = {
+                                        expandedHintSections = expandedHintSections - locationKey
+                                        locations = locations - location
+                                    },
+                                    enabled = !isSubmitting,
+                                ) { Text("Entfernen") }
+                            }
+                        }
+                        if (hintsExpanded) {
+                            Column(
+                                modifier = Modifier.padding(start = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Text("Entfernen")
+                                Text("Hints", style = MaterialTheme.typography.labelMedium)
+                                OutlinedTextField(
+                                    value = location.hints.textFor(0),
+                                    onValueChange = { text ->
+                                        locations = locations.withUpdatedLocationHint(index, 0, text)
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    label = { Text("Hint 0 (gratis, beim Ankommen gezeigt)") },
+                                )
+                                HintImagePickerRow(
+                                    imageUrl = location.hints.imageUrlFor(0),
+                                    isUploading = uploadingHintIndex == 0,
+                                    onPickImage = pickImage0,
+                                    onRemoveImage = { locations = locations.withUpdatedLocationHintImage(index, 0, null) },
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = location.hints.textFor(1),
+                                        onValueChange = { text ->
+                                            locations = locations.withUpdatedLocationHint(index, 1, text, location.hints.costFor(1))
+                                        },
+                                        modifier = Modifier.weight(2f),
+                                        label = { Text("Hint 1 (kostenpflichtig)") },
+                                    )
+                                    OutlinedTextField(
+                                        value = location.hints.costFor(1).takeIf { location.hints.textFor(1).isNotBlank() }?.toString() ?: "",
+                                        onValueChange = { costText ->
+                                            val cost = costText.toIntOrNull() ?: 0
+                                            val text = location.hints.textFor(1)
+                                            if (text.isNotBlank()) {
+                                                locations = locations.withUpdatedLocationHint(index, 1, text, cost)
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        label = { Text("Pts") },
+                                        singleLine = true,
+                                        enabled = location.hints.textFor(1).isNotBlank(),
+                                    )
+                                }
+                                HintImagePickerRow(
+                                    imageUrl = location.hints.imageUrlFor(1),
+                                    isUploading = uploadingHintIndex == 1,
+                                    onPickImage = pickImage1,
+                                    onRemoveImage = { locations = locations.withUpdatedLocationHintImage(index, 1, null) },
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = location.hints.textFor(2),
+                                        onValueChange = { text ->
+                                            locations = locations.withUpdatedLocationHint(index, 2, text, location.hints.costFor(2))
+                                        },
+                                        modifier = Modifier.weight(2f),
+                                        label = { Text("Hint 2 (kostenpflichtig)") },
+                                    )
+                                    OutlinedTextField(
+                                        value = location.hints.costFor(2).takeIf { location.hints.textFor(2).isNotBlank() }?.toString() ?: "",
+                                        onValueChange = { costText ->
+                                            val cost = costText.toIntOrNull() ?: 0
+                                            val text = location.hints.textFor(2)
+                                            if (text.isNotBlank()) {
+                                                locations = locations.withUpdatedLocationHint(index, 2, text, cost)
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        label = { Text("Pts") },
+                                        singleLine = true,
+                                        enabled = location.hints.textFor(2).isNotBlank(),
+                                    )
+                                }
+                                HintImagePickerRow(
+                                    imageUrl = location.hints.imageUrlFor(2),
+                                    isUploading = uploadingHintIndex == 2,
+                                    onPickImage = pickImage2,
+                                    onRemoveImage = { locations = locations.withUpdatedLocationHintImage(index, 2, null) },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            item {
+                Text(
+                    text = "Quiz-Fragen",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            }
+            item {
+                Button(
+                    onClick = { quizEditorState = QuizEditorState.New },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isSubmitting,
+                ) {
+                    Text("+ Frage hinzufuegen")
+                }
+            }
+            if (quizQuestions.isNotEmpty()) {
+                itemsIndexed(quizQuestions, key = { i, _ -> "quiz-create-$i" }) { index, question ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "Frage ${index + 1}: ${question.questionText}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            question.answers.sortedBy { it.answerOrder }.forEachIndexed { i, answer ->
+                                val label = listOf("A", "B", "C", "D").getOrElse(i) { "${i + 1}" }
+                                Text(
+                                    text = "${if (answer.isCorrect) "✓ " else ""}$label: ${answer.answerText}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (answer.isCorrect) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(onClick = { quizEditorState = QuizEditorState.Edit(index, question) }) {
+                                    Text("Bearbeiten")
+                                }
+                                TextButton(onClick = {
+                                    quizQuestions = quizQuestions.filterIndexed { i, _ -> i != index }
+                                }) {
+                                    Text("Loeschen")
+                                }
                             }
                         }
                     }
@@ -1003,6 +1232,7 @@ private fun EditAdventureScreen(
     modifier: Modifier = Modifier,
     adventure: Adventure,
     currentLocation: GeoPoint?,
+    snackbarHostState: SnackbarHostState,
     onDismiss: () -> Unit,
     onAdventureUpdated: () -> Unit,
 ) {
@@ -1011,6 +1241,7 @@ private fun EditAdventureScreen(
     var title by remember(adventure.id) { mutableStateOf(adventure.title) }
     var summary by remember(adventure.id) { mutableStateOf(adventure.summary) }
     var difficulty by remember(adventure.id) { mutableStateOf(adventure.difficulty.orEmpty()) }
+    var isPublic by remember(adventure.id) { mutableStateOf(adventure.isPublic) }
     var startLatitude by remember(adventure.id) { mutableStateOf(adventure.startPoint.latitude.toString()) }
     var startLongitude by remember(adventure.id) { mutableStateOf(adventure.startPoint.longitude.toString()) }
 
@@ -1026,22 +1257,43 @@ private fun EditAdventureScreen(
     var errorMessage by remember(adventure.id) { mutableStateOf<String?>(null) }
     var mapPickerTarget by remember(adventure.id) { mutableStateOf<MapPickerTarget?>(null) }
     var mapPickedPoint by remember(adventure.id) { mutableStateOf<GeoPoint?>(null) }
+    var hintDraftsByKey by remember(adventure.id) { mutableStateOf<Map<String, List<HintDraft>>>(emptyMap()) }
+    var expandedHintSections by remember(adventure.id) { mutableStateOf(emptySet<String>()) }
+    var quizQuestions by remember(adventure.id) { mutableStateOf<List<QuizQuestion>>(emptyList()) }
+    var isLoadingQuizQuestions by remember(adventure.id) { mutableStateOf(true) }
+    var isSavingQuizQuestion by remember(adventure.id) { mutableStateOf(false) }
+    var quizEditorState by remember(adventure.id) { mutableStateOf<QuizEditorState?>(null) }
 
     LaunchedEffect(adventure.id) {
         isLoadingLocations = true
+        isLoadingQuizQuestions = true
         errorMessage = null
         removedExistingLocations = emptyList()
         nextNewLocationId = 0
         runCatching {
             getAdventureLocations(adventure.id)
         }.onSuccess { locations ->
-            orderedLocations = locations
-                .sortedBy { it.orderIndex }
-                .map { location -> EditLocationItem.Existing(location) }
+            val sorted = locations.sortedBy { it.orderIndex }
+            orderedLocations = sorted.map { location -> EditLocationItem.Existing(location) }
+            hintDraftsByKey = sorted.associate { loc ->
+                "existing-${loc.orderIndex}" to loc.hints.map { HintDraft(it.hintIndex, it.text, it.pointCost, it.imageUrl) }
+            }
         }.onFailure {
-            errorMessage = "Orte konnten nicht geladen werden."
+            scope.launch {
+                snackbarHostState.showSnackbar("Orte konnten nicht geladen werden.", withDismissAction = true)
+            }
         }
         isLoadingLocations = false
+        runCatching {
+            getQuizQuestions(adventure.id)
+        }.onSuccess { questions ->
+            quizQuestions = questions
+        }.onFailure {
+            scope.launch {
+                snackbarHostState.showSnackbar("Quiz-Fragen konnten nicht geladen werden.", withDismissAction = true)
+            }
+        }
+        isLoadingQuizQuestions = false
     }
 
     fun addNewLocation() {
@@ -1060,13 +1312,15 @@ private fun EditAdventureScreen(
 
             else -> {
                 errorMessage = null
-                orderedLocations = orderedLocations + EditLocationItem.New(
+                val newItem = EditLocationItem.New(
                     localId = nextNewLocationId,
                     draft = AdventureLocationDraft(
                         name = locationName.trim(),
                         point = GeoPoint(latitude = parsedLatitude, longitude = parsedLongitude),
                     ),
                 )
+                orderedLocations = orderedLocations + newItem
+                hintDraftsByKey = hintDraftsByKey + (newItem.key to emptyList())
                 nextNewLocationId += 1
                 locationName = ""
                 locationLatitude = ""
@@ -1122,7 +1376,7 @@ private fun EditAdventureScreen(
                             locationItem as? EditLocationItem.New
                         }
                         val newLocationDrafts = newLocationItems.map { it.draft }
-                        val appendedOrderIndexesByLocalId = mutableMapOf<Int, Int>()
+                        val appendedLocationsByLocalId = mutableMapOf<Int, AdventureLocation>()
 
                         updateAdventure(
                             adventureId = adventure.id,
@@ -1132,6 +1386,7 @@ private fun EditAdventureScreen(
                                 startPoint = startPoint,
                                 difficulty = difficulty.takeIf { it.isNotBlank() }?.trim(),
                                 estimatedDurationMinutes = calculatedDurationMinutes,
+                                isPublic = isPublic,
                             ),
                         )
 
@@ -1144,14 +1399,14 @@ private fun EditAdventureScreen(
                         if (newLocationDrafts.isNotEmpty()) {
                             val appendedLocations = appendAdventureLocations(adventure.id, newLocationDrafts)
                             newLocationItems.zip(appendedLocations).forEach { (newItem, appendedLocation) ->
-                                appendedOrderIndexesByLocalId[newItem.localId] = appendedLocation.orderIndex
+                                appendedLocationsByLocalId[newItem.localId] = appendedLocation
                             }
                         }
 
                         val finalOrderIndexes = orderedLocations.map { locationItem ->
                             when (locationItem) {
                                 is EditLocationItem.Existing -> locationItem.location.orderIndex
-                                is EditLocationItem.New -> appendedOrderIndexesByLocalId[locationItem.localId]
+                                is EditLocationItem.New -> appendedLocationsByLocalId[locationItem.localId]?.orderIndex
                                     ?: throw IllegalStateException("Missing order index for new location.")
                             }
                         }
@@ -1159,11 +1414,28 @@ private fun EditAdventureScreen(
                         if (finalOrderIndexes.isNotEmpty()) {
                             reorderAdventureLocations(adventure.id, finalOrderIndexes)
                         }
+
+                        // Save hints for all locations
+                        for (locationItem in orderedLocations) {
+                            val hints = hintDraftsByKey[locationItem.key] ?: emptyList()
+                            val locationId = when (locationItem) {
+                                is EditLocationItem.Existing -> locationItem.location.id
+                                is EditLocationItem.New -> appendedLocationsByLocalId[locationItem.localId]?.id ?: -1L
+                            }
+                            if (locationId > 0L) {
+                                saveHintsForLocation(locationId, hints)
+                            }
+                        }
                     }.onSuccess {
                         onAdventureUpdated()
                         onDismiss()
                     }.onFailure { throwable ->
-                        errorMessage = throwable.message ?: "Abenteuer konnte nicht aktualisiert werden."
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                throwable.message ?: "Abenteuer konnte nicht aktualisiert werden.",
+                                withDismissAction = true,
+                            )
+                        }
                     }
                     isSubmitting = false
                 }
@@ -1207,6 +1479,53 @@ private fun EditAdventureScreen(
                 errorMessage = null
                 mapPickerTarget = null
                 mapPickedPoint = null
+            },
+        )
+        return
+    }
+
+    if (quizEditorState != null) {
+        QuizQuestionEditorScreen(
+            modifier = modifier,
+            initialDraft = (quizEditorState as? QuizEditorState.Edit)?.draft,
+            onDismiss = { quizEditorState = null },
+            onConfirm = { draft ->
+                val state = quizEditorState ?: return@QuizQuestionEditorScreen
+                scope.launch {
+                    isSavingQuizQuestion = true
+                    runCatching {
+                        when (state) {
+                            QuizEditorState.New -> {
+                                val nextOrderIndex = (quizQuestions.maxOfOrNull { it.orderIndex } ?: -1) + 1
+                                val newQuestion = createQuizQuestion(
+                                    adventureId = adventure.id,
+                                    orderIndex = nextOrderIndex,
+                                    draft = draft,
+                                )
+                                quizQuestions = quizQuestions + newQuestion
+                            }
+                            is QuizEditorState.Edit -> {
+                                val existing = quizQuestions[state.index]
+                                deleteQuizQuestion(existing.id)
+                                val updated = createQuizQuestion(
+                                    adventureId = adventure.id,
+                                    orderIndex = existing.orderIndex,
+                                    draft = draft,
+                                )
+                                quizQuestions = quizQuestions.mapIndexed { i, q ->
+                                    if (i == state.index) updated else q
+                                }
+                            }
+                        }
+                    }.onFailure { e ->
+                        snackbarHostState.showSnackbar(
+                            "Frage konnte nicht gespeichert werden: ${e.message}",
+                            withDismissAction = true,
+                        )
+                    }
+                    isSavingQuizQuestion = false
+                    quizEditorState = null
+                }
             },
         )
         return
@@ -1281,6 +1600,26 @@ private fun EditAdventureScreen(
                     label = { Text("Schwierigkeit (optional)") },
                     singleLine = true,
                 )
+            }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Öffentlich", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            text = if (isPublic) "Sichtbar für alle Nutzer" else "Nur für dich sichtbar (Entwurf)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = isPublic,
+                        onCheckedChange = { isPublic = it },
+                    )
+                }
             }
             item {
                 Text(
@@ -1361,48 +1700,170 @@ private fun EditAdventureScreen(
                         is EditLocationItem.Existing -> locationItem.location.name
                         is EditLocationItem.New -> locationItem.draft.name
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = "${index + 1}. $locationNameText",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(
-                                onClick = {
-                                    if (index > 0) {
-                                        orderedLocations = orderedLocations.move(index, index - 1)
-                                    }
-                                },
-                                enabled = !isSubmitting && index > 0,
-                            ) {
-                                Text("Hoch")
+                    val key = locationItem.key
+                    val hintsExpanded = key in expandedHintSections
+                    val currentHints = hintDraftsByKey[key] ?: emptyList()
+                    var uploadingHintIndex by remember { mutableStateOf<Int?>(null) }
+                    val pickImage0 = rememberImagePicker { bytes ->
+                        if (bytes != null) scope.launch {
+                            uploadingHintIndex = 0
+                            runCatching { uploadHintImage(bytes) }.onSuccess { url ->
+                                hintDraftsByKey = hintDraftsByKey + (key to (hintDraftsByKey[key] ?: emptyList()).withUpdatedHintImage(0, url))
                             }
-                            TextButton(
-                                onClick = {
-                                    if (index < orderedLocations.lastIndex) {
-                                        orderedLocations = orderedLocations.move(index, index + 1)
-                                    }
-                                },
-                                enabled = !isSubmitting && index < orderedLocations.lastIndex,
-                            ) {
-                                Text("Runter")
+                            uploadingHintIndex = null
+                        }
+                    }
+                    val pickImage1 = rememberImagePicker { bytes ->
+                        if (bytes != null) scope.launch {
+                            uploadingHintIndex = 1
+                            runCatching { uploadHintImage(bytes) }.onSuccess { url ->
+                                hintDraftsByKey = hintDraftsByKey + (key to (hintDraftsByKey[key] ?: emptyList()).withUpdatedHintImage(1, url))
                             }
-                            TextButton(
-                                onClick = {
-                                    orderedLocations = orderedLocations - locationItem
-                                    if (locationItem is EditLocationItem.Existing) {
-                                        removedExistingLocations =
-                                            (removedExistingLocations + locationItem.location)
-                                                .sortedBy { it.orderIndex }
-                                    }
-                                },
-                                enabled = !isSubmitting,
+                            uploadingHintIndex = null
+                        }
+                    }
+                    val pickImage2 = rememberImagePicker { bytes ->
+                        if (bytes != null) scope.launch {
+                            uploadingHintIndex = 2
+                            runCatching { uploadHintImage(bytes) }.onSuccess { url ->
+                                hintDraftsByKey = hintDraftsByKey + (key to (hintDraftsByKey[key] ?: emptyList()).withUpdatedHintImage(2, url))
+                            }
+                            uploadingHintIndex = null
+                        }
+                    }
+                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "${index + 1}. $locationNameText",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(onClick = {
+                                    expandedHintSections = if (hintsExpanded)
+                                        expandedHintSections - key
+                                    else
+                                        expandedHintSections + key
+                                }) {
+                                    Text(if (hintsExpanded) "Hints ▲" else "Hints ▼")
+                                }
+                                TextButton(
+                                    onClick = {
+                                        if (index > 0) orderedLocations = orderedLocations.move(index, index - 1)
+                                    },
+                                    enabled = !isSubmitting && index > 0,
+                                ) { Text("Hoch") }
+                                TextButton(
+                                    onClick = {
+                                        if (index < orderedLocations.lastIndex) orderedLocations = orderedLocations.move(index, index + 1)
+                                    },
+                                    enabled = !isSubmitting && index < orderedLocations.lastIndex,
+                                ) { Text("Runter") }
+                                TextButton(
+                                    onClick = {
+                                        orderedLocations = orderedLocations - locationItem
+                                        hintDraftsByKey = hintDraftsByKey - key
+                                        expandedHintSections = expandedHintSections - key
+                                        if (locationItem is EditLocationItem.Existing) {
+                                            removedExistingLocations =
+                                                (removedExistingLocations + locationItem.location)
+                                                    .sortedBy { it.orderIndex }
+                                        }
+                                    },
+                                    enabled = !isSubmitting,
+                                ) { Text("Entfernen") }
+                            }
+                        }
+                        if (hintsExpanded) {
+                            Column(
+                                modifier = Modifier.padding(start = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Text("Entfernen")
+                                Text("Hints", style = MaterialTheme.typography.labelMedium)
+                                OutlinedTextField(
+                                    value = currentHints.textFor(0),
+                                    onValueChange = { text ->
+                                        hintDraftsByKey = hintDraftsByKey + (key to currentHints.withUpdatedHint(0, text))
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    label = { Text("Hint 0 (gratis, beim Ankommen gezeigt)") },
+                                )
+                                HintImagePickerRow(
+                                    imageUrl = currentHints.imageUrlFor(0),
+                                    isUploading = uploadingHintIndex == 0,
+                                    onPickImage = pickImage0,
+                                    onRemoveImage = {
+                                        hintDraftsByKey = hintDraftsByKey + (key to currentHints.withUpdatedHintImage(0, null))
+                                    },
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = currentHints.textFor(1),
+                                        onValueChange = { text ->
+                                            hintDraftsByKey = hintDraftsByKey + (key to currentHints.withUpdatedHint(1, text, currentHints.costFor(1)))
+                                        },
+                                        modifier = Modifier.weight(2f),
+                                        label = { Text("Hint 1 (kostenpflichtig)") },
+                                    )
+                                    OutlinedTextField(
+                                        value = currentHints.costFor(1).takeIf { currentHints.textFor(1).isNotBlank() }?.toString() ?: "",
+                                        onValueChange = { costText ->
+                                            val cost = costText.toIntOrNull() ?: 0
+                                            val text = currentHints.textFor(1)
+                                            if (text.isNotBlank()) {
+                                                hintDraftsByKey = hintDraftsByKey + (key to currentHints.withUpdatedHint(1, text, cost))
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        label = { Text("Pts") },
+                                        singleLine = true,
+                                        enabled = currentHints.textFor(1).isNotBlank(),
+                                    )
+                                }
+                                HintImagePickerRow(
+                                    imageUrl = currentHints.imageUrlFor(1),
+                                    isUploading = uploadingHintIndex == 1,
+                                    onPickImage = pickImage1,
+                                    onRemoveImage = {
+                                        hintDraftsByKey = hintDraftsByKey + (key to currentHints.withUpdatedHintImage(1, null))
+                                    },
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = currentHints.textFor(2),
+                                        onValueChange = { text ->
+                                            hintDraftsByKey = hintDraftsByKey + (key to currentHints.withUpdatedHint(2, text, currentHints.costFor(2)))
+                                        },
+                                        modifier = Modifier.weight(2f),
+                                        label = { Text("Hint 2 (kostenpflichtig)") },
+                                    )
+                                    OutlinedTextField(
+                                        value = currentHints.costFor(2).takeIf { currentHints.textFor(2).isNotBlank() }?.toString() ?: "",
+                                        onValueChange = { costText ->
+                                            val cost = costText.toIntOrNull() ?: 0
+                                            val text = currentHints.textFor(2)
+                                            if (text.isNotBlank()) {
+                                                hintDraftsByKey = hintDraftsByKey + (key to currentHints.withUpdatedHint(2, text, cost))
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        label = { Text("Pts") },
+                                        singleLine = true,
+                                        enabled = currentHints.textFor(2).isNotBlank(),
+                                    )
+                                }
+                                HintImagePickerRow(
+                                    imageUrl = currentHints.imageUrlFor(2),
+                                    isUploading = uploadingHintIndex == 2,
+                                    onPickImage = pickImage2,
+                                    onRemoveImage = {
+                                        hintDraftsByKey = hintDraftsByKey + (key to currentHints.withUpdatedHintImage(2, null))
+                                    },
+                                )
                             }
                         }
                     }
@@ -1429,7 +1890,10 @@ private fun EditAdventureScreen(
                             onClick = {
                                 removedExistingLocations =
                                     removedExistingLocations.filterNot { it.orderIndex == location.orderIndex }
-                                orderedLocations = orderedLocations + EditLocationItem.Existing(location)
+                                val restoredItem = EditLocationItem.Existing(location)
+                                orderedLocations = orderedLocations + restoredItem
+                                hintDraftsByKey = hintDraftsByKey + (restoredItem.key to
+                                    location.hints.map { HintDraft(it.hintIndex, it.text, it.pointCost, it.imageUrl) })
                             },
                             enabled = !isSubmitting,
                         ) {
@@ -1509,6 +1973,78 @@ private fun EditAdventureScreen(
                     Text("Ort hinzufuegen")
                 }
             }
+            item {
+                Text(
+                    text = "Quiz-Fragen",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            }
+            item {
+                Button(
+                    onClick = { quizEditorState = QuizEditorState.New },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isSubmitting && !isSavingQuizQuestion,
+                ) {
+                    if (isSavingQuizQuestion) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Text("+ Frage hinzufuegen")
+                    }
+                }
+            }
+            if (isLoadingQuizQuestions) {
+                item {
+                    Text("Fragen werden geladen...", style = MaterialTheme.typography.bodySmall)
+                }
+            } else if (quizQuestions.isNotEmpty()) {
+                itemsIndexed(quizQuestions, key = { _, q -> "edit-quiz-${q.id}" }) { index, question ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "Frage ${index + 1}: ${question.questionText}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            question.answers.sortedBy { it.answerOrder }.forEachIndexed { i, answer ->
+                                val label = listOf("A", "B", "C", "D").getOrElse(i) { "${i + 1}" }
+                                Text(
+                                    text = "${if (answer.isCorrect) "✓ " else ""}$label: ${answer.answerText}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (answer.isCorrect) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(
+                                    onClick = {
+                                        quizEditorState = QuizEditorState.Edit(
+                                            index,
+                                            QuizQuestionDraft(
+                                                questionText = question.questionText,
+                                                answers = question.answers.map {
+                                                    QuizAnswerDraft(it.answerText, it.isCorrect, it.answerOrder)
+                                                },
+                                            ),
+                                        )
+                                    },
+                                    enabled = !isSavingQuizQuestion,
+                                ) { Text("Bearbeiten") }
+                                TextButton(
+                                    onClick = {
+                                        scope.launch {
+                                            isSavingQuizQuestion = true
+                                            runCatching { deleteQuizQuestion(question.id) }
+                                                .onSuccess { quizQuestions = quizQuestions - question }
+                                                .onFailure { e -> errorMessage = "Frage konnte nicht geloescht werden: ${e.message}" }
+                                            isSavingQuizQuestion = false
+                                        }
+                                    },
+                                    enabled = !isSavingQuizQuestion,
+                                ) { Text("Loeschen") }
+                            }
+                        }
+                    }
+                }
+            }
             if (errorMessage != null) {
                 item {
                     Text(
@@ -1580,6 +2116,93 @@ private fun MapPointPickerScreen(
     }
 }
 
+@Composable
+private fun HintImagePickerRow(
+    imageUrl: String?,
+    isUploading: Boolean,
+    onPickImage: () -> Unit,
+    onRemoveImage: () -> Unit,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (isUploading) {
+            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            Text("Bild wird hochgeladen...", style = MaterialTheme.typography.bodySmall)
+        } else if (imageUrl != null) {
+            Text(
+                text = "Bild gesetzt",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onRemoveImage) { Text("Entfernen") }
+        } else {
+            TextButton(onClick = onPickImage) { Text("Bild auswählen") }
+        }
+    }
+}
+
+private sealed interface QuizEditorState {
+    data object New : QuizEditorState
+    data class Edit(val index: Int, val draft: QuizQuestionDraft) : QuizEditorState
+}
+
+private fun List<HintDraft>.textFor(hintIndex: Int): String =
+    find { it.hintIndex == hintIndex }?.text ?: ""
+
+private fun List<HintDraft>.costFor(hintIndex: Int): Int =
+    find { it.hintIndex == hintIndex }?.pointCost ?: 0
+
+private fun List<HintDraft>.imageUrlFor(hintIndex: Int): String? =
+    find { it.hintIndex == hintIndex }?.imageUrl
+
+private fun List<HintDraft>.withUpdatedHint(hintIndex: Int, text: String, pointCost: Int = 0): List<HintDraft> {
+    val existing = toMutableList()
+    val pos = existing.indexOfFirst { it.hintIndex == hintIndex }
+    val currentImageUrl = existing.getOrNull(pos)?.imageUrl
+    if (text.isBlank() && currentImageUrl == null) {
+        if (pos >= 0) existing.removeAt(pos)
+    } else {
+        val updated = HintDraft(hintIndex, text, pointCost, currentImageUrl)
+        if (pos >= 0) existing[pos] = updated else existing.add(updated)
+    }
+    return existing.sortedBy { it.hintIndex }
+}
+
+private fun List<HintDraft>.withUpdatedHintImage(hintIndex: Int, imageUrl: String?): List<HintDraft> {
+    val existing = toMutableList()
+    val pos = existing.indexOfFirst { it.hintIndex == hintIndex }
+    val current = existing.getOrNull(pos) ?: HintDraft(hintIndex, "")
+    if (current.text.isBlank() && imageUrl == null) {
+        if (pos >= 0) existing.removeAt(pos)
+        return existing.sortedBy { it.hintIndex }
+    }
+    val updated = current.copy(imageUrl = imageUrl)
+    if (pos >= 0) existing[pos] = updated else existing.add(updated)
+    return existing.sortedBy { it.hintIndex }
+}
+
+private fun List<AdventureLocationDraft>.withUpdatedLocationHint(
+    locationIndex: Int,
+    hintIndex: Int,
+    text: String,
+    pointCost: Int = 0,
+): List<AdventureLocationDraft> = mapIndexed { i, loc ->
+    if (i != locationIndex) loc
+    else loc.copy(hints = loc.hints.withUpdatedHint(hintIndex, text, pointCost))
+}
+
+private fun List<AdventureLocationDraft>.withUpdatedLocationHintImage(
+    locationIndex: Int,
+    hintIndex: Int,
+    imageUrl: String?,
+): List<AdventureLocationDraft> = mapIndexed { i, loc ->
+    if (i != locationIndex) loc
+    else loc.copy(hints = loc.hints.withUpdatedHintImage(hintIndex, imageUrl))
+}
+
 private sealed interface EditLocationItem {
     val key: String
 
@@ -1601,6 +2224,127 @@ private fun <T> List<T>.move(fromIndex: Int, toIndex: Int): List<T> {
     val movedItem = mutable.removeAt(fromIndex)
     mutable.add(toIndex, movedItem)
     return mutable
+}
+
+@Composable
+private fun QuizQuestionEditorScreen(
+    modifier: Modifier = Modifier,
+    initialDraft: QuizQuestionDraft?,
+    onDismiss: () -> Unit,
+    onConfirm: (QuizQuestionDraft) -> Unit,
+) {
+    var questionText by remember { mutableStateOf(initialDraft?.questionText ?: "") }
+    var answers by remember {
+        mutableStateOf(
+            initialDraft?.answers?.let { drafts ->
+                List(4) { i -> drafts.find { it.answerOrder == i } ?: QuizAnswerDraft("", false, i) }
+            } ?: List(4) { i -> QuizAnswerDraft("", false, i) },
+        )
+    }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    fun validate(): Boolean {
+        return when {
+            questionText.isBlank() -> { errorMessage = "Bitte gib eine Frage ein."; false }
+            answers.none { it.isCorrect } -> { errorMessage = "Bitte markiere eine Antwort als richtig."; false }
+            answers.filter { it.answerText.isNotBlank() }.size < 2 -> {
+                errorMessage = "Bitte gib mindestens 2 Antworten ein."
+                false
+            }
+            else -> { errorMessage = null; true }
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = if (initialDraft == null) "Neue Quiz-Frage" else "Frage bearbeiten",
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onDismiss) { Text("Abbrechen") }
+            Button(onClick = {
+                if (validate()) {
+                    onConfirm(
+                        QuizQuestionDraft(
+                            questionText = questionText.trim(),
+                            answers = answers
+                                .filter { it.answerText.isNotBlank() }
+                                .mapIndexed { i, a -> a.copy(answerOrder = i) },
+                        ),
+                    )
+                }
+            }) { Text("Speichern") }
+        }
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(bottom = 24.dp),
+        ) {
+            item {
+                OutlinedTextField(
+                    value = questionText,
+                    onValueChange = { questionText = it; errorMessage = null },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Frage") },
+                    minLines = 2,
+                )
+            }
+            item {
+                Text(
+                    text = "Antworten (eine als richtig markieren)",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            }
+            itemsIndexed(answers, key = { i, _ -> i }) { index, answer ->
+                val label = listOf("A", "B", "C", "D")[index]
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    RadioButton(
+                        selected = answer.isCorrect,
+                        onClick = {
+                            answers = answers.mapIndexed { i, a -> a.copy(isCorrect = i == index) }
+                        },
+                    )
+                    OutlinedTextField(
+                        value = answer.answerText,
+                        onValueChange = { newText ->
+                            answers = answers.mapIndexed { i, a ->
+                                if (i == index) a.copy(answerText = newText) else a
+                            }
+                            errorMessage = null
+                        },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("Antwort $label") },
+                        singleLine = true,
+                    )
+                }
+            }
+            if (errorMessage != null) {
+                item {
+                    Text(
+                        text = errorMessage.orEmpty(),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
+    }
 }
 
 private fun isValidLatitude(value: Double): Boolean = value in -90.0..90.0
@@ -1656,16 +2400,30 @@ private fun ProfileAndLeaderboardTab(
 ) {
     var totalPoints by remember { mutableStateOf<Int?>(null) }
     var leaderboard by remember { mutableStateOf<List<Pair<String, Int>>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(false) }
+    var isLoadingProfile by remember { mutableStateOf(false) }
+    var isLoadingLeaderboard by remember { mutableStateOf(false) }
+    var leaderboardError by remember { mutableStateOf<String?>(null) }
+    var selectedPeriod by remember { mutableStateOf(LeaderboardPeriod.ALL) }
 
     LaunchedEffect(Unit) {
-        isLoading = true
+        isLoadingProfile = true
         totalPoints = runCatching { getUserPoints(currentUser.id) }.getOrDefault(0)
-        leaderboard = runCatching { getLeaderboard(50) }.getOrDefault(emptyList())
-        isLoading = false
+        isLoadingProfile = false
+    }
+
+    LaunchedEffect(selectedPeriod) {
+        isLoadingLeaderboard = true
+        leaderboardError = null
+        val result = runCatching { getLeaderboard(selectedPeriod, 50) }
+        leaderboard = result.getOrDefault(emptyList())
+        leaderboardError = result.exceptionOrNull()?.message
+        isLoadingLeaderboard = false
     }
 
     val currentUserDisplayName = currentUser.username ?: currentUser.email
+
+    val periodLabels = listOf("Gesamt", "Diese Woche", "Diesen Monat")
+    val periods = LeaderboardPeriod.entries
 
     LazyColumn(
         modifier = modifier,
@@ -1689,7 +2447,8 @@ private fun ProfileAndLeaderboardTab(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
-                        text = totalPoints?.let { "Punkte: $it" } ?: "Punkte werden geladen...",
+                        text = if (isLoadingProfile) "Punkte werden geladen..."
+                               else totalPoints?.let { "Punkte: $it" } ?: "–",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -1703,24 +2462,61 @@ private fun ProfileAndLeaderboardTab(
             }
         }
 
-        // Leaderboard header
+        // Leaderboard header + period tabs
         item {
             Text(
                 text = "Rangliste",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
             )
+            androidx.compose.material3.PrimaryTabRow(
+                selectedTabIndex = periods.indexOf(selectedPeriod),
+            ) {
+                periods.forEachIndexed { index, period ->
+                    androidx.compose.material3.Tab(
+                        selected = selectedPeriod == period,
+                        onClick = { selectedPeriod = period },
+                        text = { Text(periodLabels[index], style = MaterialTheme.typography.labelMedium) },
+                    )
+                }
+            }
         }
 
         // Loading state
-        if (isLoading) {
+        if (isLoadingLeaderboard) {
             item {
                 Box(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     CircularProgressIndicator()
+                }
+            }
+        } else if (leaderboardError != null) {
+            item {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "Fehler: $leaderboardError",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        } else if (leaderboard.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "Noch keine Einträge für diesen Zeitraum.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         } else {
@@ -1757,5 +2553,24 @@ private fun ProfileAndLeaderboardTab(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun OfflineBanner() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.errorContainer)
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "Keine Internetverbindung",
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }

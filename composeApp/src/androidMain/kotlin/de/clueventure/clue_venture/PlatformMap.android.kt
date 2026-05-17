@@ -6,6 +6,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.Intent
+import android.graphics.PointF
 import android.provider.Settings
 import android.location.Location
 import android.location.LocationListener
@@ -86,6 +87,8 @@ private const val ROUTE_TARGET_SOURCE_ID = "adventure-route-target-source"
 private const val ROUTE_TARGET_LAYER_ID = "adventure-route-target-layer"
 private const val PICKER_SOURCE_ID = "map-picker-source"
 private const val PICKER_LAYER_ID = "map-picker-layer"
+private const val ADVENTURE_PINS_SOURCE_ID = "adventure-pins-source"
+private const val ADVENTURE_PINS_LAYER_ID = "adventure-pins-layer"
 private const val OSRM_LOG_TAG = "ClueVentureOSRM"
 
 @Composable
@@ -103,6 +106,8 @@ actual fun PlatformMap(
     showHintsButton: Boolean,
     onHintsClicked: () -> Unit,
     onRouteDistanceChanged: (Double?) -> Unit,
+    adventurePins: List<Adventure>,
+    onAdventurePinClicked: (Adventure) -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -147,20 +152,24 @@ actual fun PlatformMap(
                     ensureLocationLayer(style)
                     ensureRouteLayers(style)
                     ensurePickerLayer(style)
+                    ensureAdventurePinsLayer(style)
                     applyRouteOverlay(style, routePoints, routeTargets)
                     applyPickerOverlay(style, if (enablePointSelection) selectedPoint else null)
+                    applyAdventurePinsOverlay(style, adventurePins)
                 }
             }
         }
     }
 
-    LaunchedEffect(mapLibreMap, routeTargets, latestLocation, routePoints, selectedPoint, enablePointSelection) {
+    LaunchedEffect(mapLibreMap, routeTargets, latestLocation, routePoints, selectedPoint, enablePointSelection, adventurePins) {
         val map = mapLibreMap ?: return@LaunchedEffect
         map.getStyle { style ->
             ensureRouteLayers(style)
             ensurePickerLayer(style)
+            ensureAdventurePinsLayer(style)
             applyRouteOverlay(style, routePoints, routeTargets)
             applyPickerOverlay(style, if (enablePointSelection) selectedPoint else null)
+            applyAdventurePinsOverlay(style, adventurePins)
         }
     }
 
@@ -184,6 +193,32 @@ actual fun PlatformMap(
         onDispose {
             map.removeOnMapClickListener(listener)
         }
+    }
+
+    DisposableEffect(mapLibreMap, adventurePins, onAdventurePinClicked) {
+        val map = mapLibreMap
+        if (map == null || adventurePins.isEmpty()) return@DisposableEffect onDispose { }
+
+        val listener = MapLibreMap.OnMapClickListener { latLng ->
+            val screenPoint = map.projection.toScreenLocation(latLng)
+            val features = map.queryRenderedFeatures(screenPoint, ADVENTURE_PINS_LAYER_ID)
+            if (features.isNotEmpty()) {
+                val geometry = features.first().geometry()
+                if (geometry is Point) {
+                    val clickedGeoPoint = GeoPoint(geometry.latitude(), geometry.longitude())
+                    val matched = adventurePins.firstOrNull { pin ->
+                        pin.startPoint.distanceTo(clickedGeoPoint) < 1.0
+                    }
+                    if (matched != null) {
+                        onAdventurePinClicked(matched)
+                        return@OnMapClickListener true
+                    }
+                }
+            }
+            false
+        }
+        map.addOnMapClickListener(listener)
+        onDispose { map.removeOnMapClickListener(listener) }
     }
 
     LaunchedEffect(latestLocation?.toGeoPoint(), routeTargets) {
@@ -625,6 +660,40 @@ private fun applyPickerOverlay(style: Style, selectedPoint: GeoPoint?) {
     pickerSource.setGeoJson(
         Feature.fromGeometry(
             Point.fromLngLat(selectedPoint.longitude, selectedPoint.latitude),
+        ),
+    )
+}
+
+private fun ensureAdventurePinsLayer(style: Style) {
+    if (style.getSource(ADVENTURE_PINS_SOURCE_ID) == null) {
+        style.addSource(GeoJsonSource(ADVENTURE_PINS_SOURCE_ID, FeatureCollection.fromFeatures(arrayOf())))
+    }
+    if (style.getLayer(ADVENTURE_PINS_LAYER_ID) == null) {
+        style.addLayer(
+            CircleLayer(ADVENTURE_PINS_LAYER_ID, ADVENTURE_PINS_SOURCE_ID)
+                .withProperties(
+                    circleRadius(9f),
+                    circleColor("#F57C00"),
+                    circleStrokeColor("#FFFFFF"),
+                    circleStrokeWidth(2f),
+                ),
+        )
+    }
+}
+
+private fun applyAdventurePinsOverlay(style: Style, adventurePins: List<Adventure>) {
+    val source = style.getSourceAs<GeoJsonSource>(ADVENTURE_PINS_SOURCE_ID) ?: return
+    if (adventurePins.isEmpty()) {
+        source.setGeoJson(FeatureCollection.fromFeatures(arrayOf()))
+        return
+    }
+    source.setGeoJson(
+        FeatureCollection.fromFeatures(
+            adventurePins.map { adventure ->
+                Feature.fromGeometry(
+                    Point.fromLngLat(adventure.startPoint.longitude, adventure.startPoint.latitude),
+                )
+            }.toTypedArray(),
         ),
     )
 }

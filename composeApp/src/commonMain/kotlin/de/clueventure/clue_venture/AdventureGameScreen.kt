@@ -27,6 +27,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -97,6 +99,7 @@ fun AdventureGameScreen(
     initialAttempt: AdventureAttempt? = null,
     isAdventureComplete: Boolean = false,
     callbacks: AdventureGameCallbacks,
+    snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier,
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -127,6 +130,7 @@ fun AdventureGameScreen(
     var answeredQuestionIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var pointsEarned by remember { mutableIntStateOf(0) }
     var correctAnswerCount by remember { mutableIntStateOf(0) }
+    var checkpointPointsEarned by remember { mutableIntStateOf(0) }
     var hasFinishedAttempt by remember { mutableStateOf(false) }
     var isFinishingAttempt by remember { mutableStateOf(false) }
     var isCancellingAttempt by remember { mutableStateOf(false) }
@@ -142,7 +146,7 @@ fun AdventureGameScreen(
     var userPoints by remember { mutableIntStateOf(0) }
     var boughtHintIndices by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var checkpointStartTime by remember { mutableStateOf(currentTimeMillis()) }
-    var hint0PopupText by remember { mutableStateOf<String?>(null) }
+    var hint0Popup by remember { mutableStateOf<Hint?>(null) }
     var showHintsSheet by remember { mutableStateOf(false) }
 
     val currentWaypoint = adventureLocations.getOrNull(currentCheckpointIndex)
@@ -264,6 +268,7 @@ fun AdventureGameScreen(
                         elapsedSeconds = elapsedSeconds,
                         timeLimitSeconds = timeLimit,
                     )
+                    checkpointPointsEarned += awarded
                     coroutineScope.launch {
                         runCatching { updateUserPoints(userId, awarded) }
                         userPoints = runCatching { getUserPoints(userId) }.getOrDefault(userPoints)
@@ -276,7 +281,7 @@ fun AdventureGameScreen(
 
             // Show hint 0 popup for the checkpoint that was just reached
             currentWaypoint?.hints?.find { it.hintIndex == 0 }?.let { hint0 ->
-                hint0PopupText = hint0.text
+                hint0Popup = hint0
             }
 
             expectingNewRouteDistanceForCheckpoint = true
@@ -466,13 +471,24 @@ fun AdventureGameScreen(
             )
         }
 
-        hint0PopupText?.let { text ->
+        hint0Popup?.let { hint ->
             AlertDialog(
-                onDismissRequest = { hint0PopupText = null },
+                onDismissRequest = { hint0Popup = null },
                 title = { Text("Hinweis") },
-                text = { Text(text) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (hint.text.isNotBlank()) Text(hint.text)
+                        hint.imageUrl?.let { url ->
+                            coil3.compose.AsyncImage(
+                                model = url,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                },
                 confirmButton = {
-                    Button(onClick = { hint0PopupText = null }) {
+                    Button(onClick = { hint0Popup = null }) {
                         Text("Ok")
                     }
                 },
@@ -555,6 +571,11 @@ fun AdventureGameScreen(
                                         println("Error loading quiz question: ${e.message}")
                                         showQuizSheet = false
                                         gameState = GameState.Navigating
+                                        snackbarHostState.showSnackbar(
+                                            "Quiz-Frage konnte nicht geladen werden.",
+                                            withDismissAction = true,
+                                            duration = SnackbarDuration.Short,
+                                        )
                                     }
                                 }
                             },
@@ -602,6 +623,11 @@ fun AdventureGameScreen(
                                                 userPoints = runCatching { getUserPoints(userId) }.getOrDefault(userPoints)
                                             }.onFailure { e ->
                                                 println("Error buying hint ${hint.hintIndex}: ${e.message}")
+                                                snackbarHostState.showSnackbar(
+                                                    "Hint konnte nicht gekauft werden. Bitte versuche es erneut.",
+                                                    withDismissAction = true,
+                                                    duration = SnackbarDuration.Short,
+                                                )
                                             }
                                         }
                                     },
@@ -744,7 +770,7 @@ fun AdventureGameScreen(
                         verticalArrangement = Arrangement.Center,
                     ) {
                         Text(
-                            text = if (isAdventureCancelled) "Abenteuer beendet" else "🎉 Abenteuer abgeschlossen!",
+                            text = if (isAdventureCancelled) "Abenteuer beendet" else "Abenteuer abgeschlossen!",
                             fontSize = 24.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
@@ -759,17 +785,11 @@ fun AdventureGameScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         } else {
-                            Text(
-                                text = if (isFinishingAttempt) "Punkte werden berechnet..." else "Punkte: $pointsEarned",
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-
-                            Text(
-                                text = "Richtige Antworten: $correctAnswerCount",
-                                fontSize = 16.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            AdventurePointsSummary(
+                                checkpointPoints = checkpointPointsEarned,
+                                quizPoints = correctAnswerCount * PUZZLE_POINTS_PER_CORRECT_ANSWER,
+                                completionBonus = pointsEarned,
+                                isLoading = isFinishingAttempt,
                             )
                         }
 
@@ -882,6 +902,87 @@ fun AdventureGameScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AdventurePointsSummary(
+    checkpointPoints: Int,
+    quizPoints: Int,
+    completionBonus: Int,
+    isLoading: Boolean,
+) {
+    val totalPoints = checkpointPoints + quizPoints + completionBonus
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = "Deine Punkte",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+
+            PointsRow("Checkpoints", checkpointPoints)
+            PointsRow("Quiz", quizPoints)
+
+            if (isLoading) {
+                PointsRow("Abschlussbonus", null)
+            } else {
+                PointsRow("Abschlussbonus", completionBonus)
+            }
+
+            androidx.compose.material3.HorizontalDivider()
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = "Gesamt",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+                if (isLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                } else {
+                    Text(
+                        text = "$totalPoints Pkt.",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PointsRow(label: String, points: Int?) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
+        Text(
+            text = if (points != null) "$points Pkt." else "...",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
     }
 }
 
@@ -1010,6 +1111,26 @@ private fun NavigationIndicator(
 private const val PUZZLE_POINTS_PER_CORRECT_ANSWER = 100
 
 @Composable
+private fun HintContent(hint: Hint) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (hint.text.isNotBlank()) {
+            Text(
+                text = hint.text,
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        hint.imageUrl?.let { url ->
+            coil3.compose.AsyncImage(
+                model = url,
+                contentDescription = null,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
 private fun HintBottomSheet(
     hints: List<Hint>,
     boughtHintIndices: Set<Int>,
@@ -1067,21 +1188,13 @@ private fun HintBottomSheet(
                 Spacer(Modifier.height(8.dp))
 
                 hint0?.let {
-                    Text(
-                        text = it.text,
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
+                    HintContent(hint = it)
                 }
 
                 hint1?.let { hint ->
                     Spacer(Modifier.height(12.dp))
                     if (1 in boughtHintIndices) {
-                        Text(
-                            text = hint.text,
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
+                        HintContent(hint = hint)
                     } else {
                         Button(
                             onClick = { onBuyHint(hint) },
@@ -1095,11 +1208,7 @@ private fun HintBottomSheet(
                 hint2?.let { hint ->
                     Spacer(Modifier.height(12.dp))
                     if (2 in boughtHintIndices) {
-                        Text(
-                            text = hint.text,
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
+                        HintContent(hint = hint)
                     } else {
                         Button(
                             onClick = { onBuyHint(hint) },
