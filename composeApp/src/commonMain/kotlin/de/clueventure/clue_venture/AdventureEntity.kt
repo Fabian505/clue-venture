@@ -179,6 +179,12 @@ data class UserProfileInsertEntity(
     @SerialName("adventures_started") val adventuresStarted: Int = 0,
 )
 
+@Serializable
+data class UserPointsUpdateEntity(
+    @SerialName("total_points") val totalPoints: Int,
+    @SerialName("last_updated") val lastUpdated: String,
+)
+
 // ============================================================================
 // ADVENTURE ATTEMPT ENTITIES
 // ============================================================================

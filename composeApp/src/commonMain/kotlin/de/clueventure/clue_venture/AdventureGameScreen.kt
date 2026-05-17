@@ -633,9 +633,9 @@ fun AdventureGameScreen(
                                             }.onFailure { e ->
                                                 println("Error buying hint ${hint.hintIndex}: ${e.message}")
                                                 snackbarHostState.showSnackbar(
-                                                    "Hint konnte nicht gekauft werden. Bitte versuche es erneut.",
+                                                    "[DEBUG] ${e::class.simpleName}: ${e.message}",
                                                     withDismissAction = true,
-                                                    duration = SnackbarDuration.Short,
+                                                    duration = SnackbarDuration.Indefinite,
                                                 )
                                             }
                                         }

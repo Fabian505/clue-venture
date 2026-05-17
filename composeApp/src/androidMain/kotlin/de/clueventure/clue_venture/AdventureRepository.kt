@@ -647,6 +647,13 @@ actual suspend fun startAdventureAttempt(adventureId: String, userId: String): A
     try {
         val numericAdventureId = adventureId.toLongOrNull() ?: throw IllegalArgumentException("Invalid adventure ID")
 
+        // Ensure user_profiles row exists so point transactions always have a row to update.
+        // A duplicate-key error means the row already exists — that is fine.
+        runCatching {
+            supabaseClient.from("user_profiles")
+                .insert(UserProfileInsertEntity(userId = userId))
+        }
+
         val attempt = supabaseClient.from("adventure_attempts")
             .insert(
                 AdventureAttemptInsertEntity(
@@ -853,9 +860,10 @@ actual suspend fun getHints(locationId: Long): List<Hint> = withContext(Dispatch
 actual suspend fun getUserPoints(userId: String): Int = withContext(Dispatchers.IO) {
     runCatching {
         supabaseClient.from("user_profiles")
-            .select()
-            .decodeList<UserProfileEntity>()
-            .find { it.userId == userId }
+            .select() {
+                filter { eq("user_id", userId) }
+            }
+            .decodeSingleOrNull<UserProfileEntity>()
             ?.totalPoints ?: 0
     }.onFailure { e ->
         println("Error fetching points for user $userId: ${e.message}")
@@ -863,23 +871,30 @@ actual suspend fun getUserPoints(userId: String): Int = withContext(Dispatchers.
 }
 
 actual suspend fun updateUserPoints(userId: String, pointsDelta: Int): Unit = withContext(Dispatchers.IO) {
-    // Single atomic RPC call — avoids the read-then-write race condition.
-    // Requires this Postgres function in Supabase:
-    //   CREATE OR REPLACE FUNCTION increment_user_points(p_user_id UUID, p_delta INT)
-    //   RETURNS VOID LANGUAGE SQL AS $$
-    //     UPDATE user_profiles SET total_points = total_points + p_delta WHERE user_id = p_user_id;
-    //   $$;
-    runCatching {
-        supabaseClient.postgrest.rpc(
-            "increment_user_points",
-            buildJsonObject {
-                put("p_user_id", userId)
-                put("p_delta", pointsDelta)
-            },
-        )
-    }.onFailure { e ->
-        println("Error updating points for user $userId: ${e.message}")
-        throw e
+    if (pointsDelta < 0) {
+        // For deductions (e.g. hint purchases): read current value, clamp at 0, then write.
+        // The increment_user_points RPC upsert path triggers a CHECK (total_points >= 0)
+        // violation when the INSERT VALUES path is evaluated with a negative delta.
+        val current = getUserPoints(userId)
+        val newPoints = (current + pointsDelta).coerceAtLeast(0)
+        supabaseClient.from("user_profiles")
+            .update(UserPointsUpdateEntity(totalPoints = newPoints, lastUpdated = nowIso8601())) {
+                filter { eq("user_id", userId) }
+            }
+    } else {
+        // For increments: use the atomic RPC upsert so missing rows are created automatically.
+        runCatching {
+            supabaseClient.postgrest.rpc(
+                "increment_user_points",
+                buildJsonObject {
+                    put("p_user_id", userId)
+                    put("p_delta", pointsDelta)
+                },
+            )
+        }.onFailure { e ->
+            println("Error updating points for user $userId: ${e.message}")
+            throw e
+        }
     }
     Unit
 }
