@@ -218,14 +218,17 @@ ALTER TABLE public.quiz_questions
 -- FUNCTIONS
 -- ============================================================================
 
--- Atomic point increment — avoids read-then-write race conditions.
+-- Atomic point increment with upsert — creates the row if it doesn't exist yet.
 CREATE OR REPLACE FUNCTION public.increment_user_points(p_user_id UUID, p_delta INT)
 RETURNS VOID
 LANGUAGE SQL
 AS $$
-    UPDATE public.user_profiles
-    SET total_points = total_points + p_delta
-    WHERE user_id = p_user_id;
+    INSERT INTO public.user_profiles (user_id, total_points)
+    VALUES (p_user_id, p_delta)
+    ON CONFLICT (user_id)
+    DO UPDATE SET
+        total_points  = user_profiles.total_points + EXCLUDED.total_points,
+        last_updated  = now();
 $$;
 
 GRANT EXECUTE ON FUNCTION public.increment_user_points(UUID, INT) TO anon;

@@ -700,15 +700,20 @@ actual suspend fun finishAdventureAttempt(attemptId: Long): Int = withContext(Di
                 filter { eq("id", attemptId) }
             }
 
-        // Update user profile
+        // Update user profile — use atomic RPC upsert so the row is created if missing
+        supabaseClient.postgrest.rpc(
+            "increment_user_points",
+            buildJsonObject {
+                put("p_user_id", attempt.userId)
+                put("p_delta", pointsEarned)
+            },
+        )
+        // Increment adventures_completed (row guaranteed to exist after RPC above)
         val userProfile = getUserProfile(attempt.userId)
         if (userProfile != null) {
             supabaseClient.from("user_profiles")
                 .update(
-                    mapOf(
-                        "total_points" to (userProfile.totalPoints + pointsEarned),
-                        "adventures_completed" to (userProfile.adventuresCompleted + 1),
-                    ),
+                    mapOf("adventures_completed" to (userProfile.adventuresCompleted + 1)),
                 ) {
                     filter { eq("user_id", attempt.userId) }
                 }
