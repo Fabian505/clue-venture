@@ -48,6 +48,7 @@ data class AdventureDraft(
     val estimatedDurationMinutes: Int?,
     val locations: List<AdventureLocationDraft>,
     val quizQuestions: List<QuizQuestionDraft> = emptyList(),
+    val isPublic: Boolean = false,
 )
 
 data class AdventureMetadataDraft(

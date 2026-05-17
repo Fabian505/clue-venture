@@ -24,8 +24,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
@@ -620,6 +624,47 @@ fun App() {
     }
 }
 
+private val DIFFICULTY_OPTIONS = listOf("Leicht", "Mittel", "Schwer")
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun DifficultyDropdown(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        modifier = modifier,
+    ) {
+        OutlinedTextField(
+            value = value.ifBlank { "Keine Angabe" },
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Schwierigkeit (optional)") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text("Keine Angabe") },
+                onClick = { onValueChange(""); expanded = false },
+            )
+            DIFFICULTY_OPTIONS.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option) },
+                    onClick = { onValueChange(option); expanded = false },
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun CreateAdventureScreen(
     modifier: Modifier = Modifier,
@@ -633,6 +678,7 @@ private fun CreateAdventureScreen(
     var title by remember { mutableStateOf("") }
     var summary by remember { mutableStateOf("") }
     var difficulty by remember { mutableStateOf("") }
+    var isPublic by remember { mutableStateOf(false) }
     var startLatitude by remember { mutableStateOf("") }
     var startLongitude by remember { mutableStateOf("") }
 
@@ -718,6 +764,7 @@ private fun CreateAdventureScreen(
                                 estimatedDurationMinutes = calculatedDurationMinutes,
                                 locations = locations,
                                 quizQuestions = quizQuestions,
+                                isPublic = isPublic,
                             ),
                         )
                     }.onSuccess { createdAdventure ->
@@ -867,13 +914,31 @@ private fun CreateAdventureScreen(
                 )
             }
             item {
-                OutlinedTextField(
+                DifficultyDropdown(
                     value = difficulty,
                     onValueChange = { difficulty = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Schwierigkeit (optional)") },
-                    singleLine = true,
                 )
+            }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column {
+                        Text("Öffentlich", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            text = if (isPublic) "Sichtbar für alle Nutzer" else "Nur für dich sichtbar (Entwurf)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = isPublic,
+                        onCheckedChange = { isPublic = it },
+                    )
+                }
             }
             item {
                 Text(
@@ -1018,27 +1083,27 @@ private fun CreateAdventureScreen(
                     val pickImage0 = rememberImagePicker { bytes ->
                         if (bytes != null) scope.launch {
                             uploadingHintIndex = 0
-                            runCatching { uploadHintImage(bytes) }.onSuccess { url ->
-                                locations = locations.withUpdatedLocationHintImage(index, 0, url)
-                            }
+                            runCatching { uploadHintImage(bytes) }
+                                .onSuccess { url -> locations = locations.withUpdatedLocationHintImage(index, 0, url) }
+                                .onFailure { snackbarHostState.showSnackbar("Bild konnte nicht hochgeladen werden: ${it.message}", withDismissAction = true) }
                             uploadingHintIndex = null
                         }
                     }
                     val pickImage1 = rememberImagePicker { bytes ->
                         if (bytes != null) scope.launch {
                             uploadingHintIndex = 1
-                            runCatching { uploadHintImage(bytes) }.onSuccess { url ->
-                                locations = locations.withUpdatedLocationHintImage(index, 1, url)
-                            }
+                            runCatching { uploadHintImage(bytes) }
+                                .onSuccess { url -> locations = locations.withUpdatedLocationHintImage(index, 1, url) }
+                                .onFailure { snackbarHostState.showSnackbar("Bild konnte nicht hochgeladen werden: ${it.message}", withDismissAction = true) }
                             uploadingHintIndex = null
                         }
                     }
                     val pickImage2 = rememberImagePicker { bytes ->
                         if (bytes != null) scope.launch {
                             uploadingHintIndex = 2
-                            runCatching { uploadHintImage(bytes) }.onSuccess { url ->
-                                locations = locations.withUpdatedLocationHintImage(index, 2, url)
-                            }
+                            runCatching { uploadHintImage(bytes) }
+                                .onSuccess { url -> locations = locations.withUpdatedLocationHintImage(index, 2, url) }
+                                .onFailure { snackbarHostState.showSnackbar("Bild konnte nicht hochgeladen werden: ${it.message}", withDismissAction = true) }
                             uploadingHintIndex = null
                         }
                     }
@@ -1593,12 +1658,10 @@ private fun EditAdventureScreen(
                 )
             }
             item {
-                OutlinedTextField(
+                DifficultyDropdown(
                     value = difficulty,
                     onValueChange = { difficulty = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Schwierigkeit (optional)") },
-                    singleLine = true,
                 )
             }
             item {
@@ -1707,27 +1770,27 @@ private fun EditAdventureScreen(
                     val pickImage0 = rememberImagePicker { bytes ->
                         if (bytes != null) scope.launch {
                             uploadingHintIndex = 0
-                            runCatching { uploadHintImage(bytes) }.onSuccess { url ->
-                                hintDraftsByKey = hintDraftsByKey + (key to (hintDraftsByKey[key] ?: emptyList()).withUpdatedHintImage(0, url))
-                            }
+                            runCatching { uploadHintImage(bytes) }
+                                .onSuccess { url -> hintDraftsByKey = hintDraftsByKey + (key to (hintDraftsByKey[key] ?: emptyList()).withUpdatedHintImage(0, url)) }
+                                .onFailure { snackbarHostState.showSnackbar("Bild konnte nicht hochgeladen werden: ${it.message}", withDismissAction = true) }
                             uploadingHintIndex = null
                         }
                     }
                     val pickImage1 = rememberImagePicker { bytes ->
                         if (bytes != null) scope.launch {
                             uploadingHintIndex = 1
-                            runCatching { uploadHintImage(bytes) }.onSuccess { url ->
-                                hintDraftsByKey = hintDraftsByKey + (key to (hintDraftsByKey[key] ?: emptyList()).withUpdatedHintImage(1, url))
-                            }
+                            runCatching { uploadHintImage(bytes) }
+                                .onSuccess { url -> hintDraftsByKey = hintDraftsByKey + (key to (hintDraftsByKey[key] ?: emptyList()).withUpdatedHintImage(1, url)) }
+                                .onFailure { snackbarHostState.showSnackbar("Bild konnte nicht hochgeladen werden: ${it.message}", withDismissAction = true) }
                             uploadingHintIndex = null
                         }
                     }
                     val pickImage2 = rememberImagePicker { bytes ->
                         if (bytes != null) scope.launch {
                             uploadingHintIndex = 2
-                            runCatching { uploadHintImage(bytes) }.onSuccess { url ->
-                                hintDraftsByKey = hintDraftsByKey + (key to (hintDraftsByKey[key] ?: emptyList()).withUpdatedHintImage(2, url))
-                            }
+                            runCatching { uploadHintImage(bytes) }
+                                .onSuccess { url -> hintDraftsByKey = hintDraftsByKey + (key to (hintDraftsByKey[key] ?: emptyList()).withUpdatedHintImage(2, url)) }
+                                .onFailure { snackbarHostState.showSnackbar("Bild konnte nicht hochgeladen werden: ${it.message}", withDismissAction = true) }
                             uploadingHintIndex = null
                         }
                     }

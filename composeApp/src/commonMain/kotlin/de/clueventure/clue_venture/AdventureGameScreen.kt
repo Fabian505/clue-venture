@@ -25,12 +25,15 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,6 +42,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.filter
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -187,6 +192,13 @@ fun AdventureGameScreen(
                     adventureLocations.isEmpty() -> GameState.Error
                     else -> GameState.Navigating
                 }
+
+                // Show hint 0 of the first checkpoint immediately at game start
+                if (gameState == GameState.Navigating) {
+                    adventureLocations.getOrNull(0)?.hints?.find { it.hintIndex == 0 }?.let {
+                        hint0Popup = it
+                    }
+                }
             } catch (e: Exception) {
                 println("Error initializing adventure: ${e.message}")
                 attemptError =
@@ -239,48 +251,49 @@ fun AdventureGameScreen(
         currentRouteDistanceMeters = distanceToWaypoint
     }
 
-    // Handle waypoint reached
-    LaunchedEffect(isWaypointReached) {
-        if (
-            isWaypointReached &&
-            gameState == GameState.Navigating &&
-            currentCheckpointIndex != lastReachedCheckpointIndex
-        ) {
-            lastReachedCheckpointIndex = currentCheckpointIndex
+    // Handle waypoint reached — snapshotFlow re-evaluates on every state change so we
+    // never miss the gameState Loading→Navigating transition when isWaypointReached is
+    // already true (a LaunchedEffect keyed on a boolean cannot detect that transition).
+    LaunchedEffect(Unit) {
+        snapshotFlow {
+            val wpt = adventureLocations.getOrNull(currentCheckpointIndex)
+            currentLocationState != null && wpt != null &&
+                distanceToWaypoint < WAYPOINT_REACHED_DISTANCE_METERS &&
+                gameState == GameState.Navigating
+        }.filter { it }
+         .collect {
+            if (currentCheckpointIndex == lastReachedCheckpointIndex) return@collect
+            val idx = currentCheckpointIndex
+            val waypoint = adventureLocations.getOrNull(idx) ?: return@collect
+            lastReachedCheckpointIndex = idx
 
-            // Award checkpoint points with time penalty before advancing
-            currentWaypoint?.let { waypoint ->
-                if (waypoint.pointValue > 0) {
-                    val elapsedSeconds = ((currentTimeMillis() - checkpointStartTime) / 1000).toInt()
-                    val previousPoint = if (currentCheckpointIndex == 0) {
-                        adventure.startPoint
-                    } else {
-                        adventureLocations.getOrNull(currentCheckpointIndex - 1)?.point
-                            ?: adventure.startPoint
-                    }
-                    val timeLimit = effectiveTimeLimitSeconds(
-                        manualTimeLimitSeconds = waypoint.timeLimitSeconds,
-                        previousPoint = previousPoint,
-                        currentPoint = waypoint.point,
-                    )
-                    val awarded = calculateCheckpointPoints(
-                        basePoints = waypoint.pointValue,
-                        elapsedSeconds = elapsedSeconds,
-                        timeLimitSeconds = timeLimit,
-                    )
-                    checkpointPointsEarned += awarded
-                    coroutineScope.launch {
-                        runCatching { updateUserPoints(userId, awarded) }
-                        userPoints = runCatching { getUserPoints(userId) }.getOrDefault(userPoints)
-                    }
+            if (waypoint.pointValue > 0) {
+                val elapsedSeconds = ((currentTimeMillis() - checkpointStartTime) / 1000).toInt()
+                val previousPoint = if (idx == 0) {
+                    adventure.startPoint
+                } else {
+                    adventureLocations.getOrNull(idx - 1)?.point ?: adventure.startPoint
+                }
+                val timeLimit = effectiveTimeLimitSeconds(
+                    manualTimeLimitSeconds = waypoint.timeLimitSeconds,
+                    previousPoint = previousPoint,
+                    currentPoint = waypoint.point,
+                )
+                val awarded = calculateCheckpointPoints(
+                    basePoints = waypoint.pointValue,
+                    elapsedSeconds = elapsedSeconds,
+                    timeLimitSeconds = timeLimit,
+                )
+                checkpointPointsEarned += awarded
+                coroutineScope.launch {
+                    runCatching { updateUserPoints(userId, awarded) }
+                    userPoints = runCatching { getUserPoints(userId) }.getOrDefault(userPoints)
                 }
             }
 
-            // Reset timer for the next checkpoint leg
             checkpointStartTime = currentTimeMillis()
 
-            // Show hint 0 popup for the checkpoint that was just reached
-            currentWaypoint?.hints?.find { it.hintIndex == 0 }?.let { hint0 ->
+            adventureLocations.getOrNull(idx + 1)?.hints?.find { it.hintIndex == 0 }?.let { hint0 ->
                 hint0Popup = hint0
             }
 
@@ -289,14 +302,10 @@ fun AdventureGameScreen(
             pendingRouteDistanceMeters = null
             moveToNextCheckpoint(
                 adventure,
-                currentCheckpointIndex,
-                { nextIndex ->
-                    currentCheckpointIndex = nextIndex
-                },
-                { gameState = it },
-                onCheckpointAdvanced = { nextIndex ->
-                    pendingUnlockCheckpointIndex = nextIndex
-                },
+                idx,
+                { nextIndex -> currentCheckpointIndex = nextIndex },
+                { gs -> gameState = gs },
+                onCheckpointAdvanced = { nextIndex -> pendingUnlockCheckpointIndex = nextIndex },
             )
         }
     }
@@ -472,18 +481,25 @@ fun AdventureGameScreen(
         }
 
         hint0Popup?.let { hint ->
+            var showFullscreenHint0 by remember { mutableStateOf(false) }
+            if (showFullscreenHint0) {
+                hint.imageUrl?.let { url ->
+                    FullscreenImageDialog(url = url, onDismiss = { showFullscreenHint0 = false })
+                }
+            }
             AlertDialog(
                 onDismissRequest = { hint0Popup = null },
                 title = { Text("Hinweis") },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (hint.text.isNotBlank()) Text(hint.text)
-                        hint.imageUrl?.let { url ->
-                            coil3.compose.AsyncImage(
-                                model = url,
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                        if (hint.imageUrl != null) {
+                            TextButton(
+                                onClick = { showFullscreenHint0 = true },
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            ) {
+                                Text("🖼 Bild anzeigen", style = MaterialTheme.typography.labelMedium)
+                            }
                         }
                     }
                 },
@@ -526,13 +542,6 @@ fun AdventureGameScreen(
                                     )
                                 }
                                 currentLocationState = updatedLocation
-
-                                location?.let { currentLocation ->
-                                    currentWaypoint?.point?.let { waypointPoint ->
-                                        distanceToWaypoint = currentLocation.distanceTo(waypointPoint)
-                                        currentRouteDistanceMeters = distanceToWaypoint
-                                    }
-                                }
 
                                 currentAttempt?.id?.let { attemptId ->
                                     coroutineScope.launch {
@@ -1111,8 +1120,38 @@ private fun NavigationIndicator(
 private const val PUZZLE_POINTS_PER_CORRECT_ANSWER = 100
 
 @Composable
+private fun FullscreenImageDialog(url: String, onDismiss: () -> Unit) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .clickable { onDismiss() },
+            contentAlignment = Alignment.Center,
+        ) {
+            coil3.compose.AsyncImage(
+                model = url,
+                contentDescription = null,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+            ) {
+                Icon(CloseIcon, contentDescription = "Schließen", tint = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
 private fun HintContent(hint: Hint) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    var showFullscreen by remember { mutableStateOf(false) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (hint.text.isNotBlank()) {
             Text(
                 text = hint.text,
@@ -1120,12 +1159,19 @@ private fun HintContent(hint: Hint) {
                 color = MaterialTheme.colorScheme.onSurface,
             )
         }
+        if (hint.imageUrl != null) {
+            TextButton(
+                onClick = { showFullscreen = true },
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+            ) {
+                Text("🖼 Bild anzeigen", style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+
+    if (showFullscreen) {
         hint.imageUrl?.let { url ->
-            coil3.compose.AsyncImage(
-                model = url,
-                contentDescription = null,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            FullscreenImageDialog(url = url, onDismiss = { showFullscreen = false })
         }
     }
 }

@@ -113,7 +113,7 @@ actual suspend fun createAdventure(draft: AdventureDraft): Adventure = withConte
                 difficulty = draft.difficulty,
                 estimatedDurationMinutes = draft.estimatedDurationMinutes,
                 completionPoints = 0,
-                isPublic = false,
+                isPublic = draft.isPublic,
                 createdBy = loadCurrentUser()?.id,
             ),
         ) {
