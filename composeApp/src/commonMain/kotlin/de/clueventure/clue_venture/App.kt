@@ -433,6 +433,7 @@ fun App() {
 
                         BottomTab.Right -> ProfileAndLeaderboardTab(
                             currentUser = currentUser!!,
+                            refreshKey = adventureRefreshKey,
                             onLogout = {
                                 appScope.launch {
                                     logoutUser()
@@ -685,6 +686,7 @@ private fun CreateAdventureScreen(
     var locationName by remember { mutableStateOf("") }
     var locationLatitude by remember { mutableStateOf("") }
     var locationLongitude by remember { mutableStateOf("") }
+    var locationPointValue by remember { mutableStateOf("") }
     var locations by remember { mutableStateOf<List<AdventureLocationDraft>>(emptyList()) }
 
     var isSubmitting by remember { mutableStateOf(false) }
@@ -714,10 +716,12 @@ private fun CreateAdventureScreen(
                 locations = locations + AdventureLocationDraft(
                     name = locationName.trim(),
                     point = GeoPoint(latitude = parsedLatitude, longitude = parsedLongitude),
+                    pointValue = locationPointValue.toIntOrNull() ?: 0,
                 )
                 locationName = ""
                 locationLatitude = ""
                 locationLongitude = ""
+                locationPointValue = ""
             }
         }
     }
@@ -1060,6 +1064,15 @@ private fun CreateAdventureScreen(
                 )
             }
             item {
+                OutlinedTextField(
+                    value = locationPointValue,
+                    onValueChange = { locationPointValue = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Punkte (0 = keine)") },
+                    singleLine = true,
+                )
+            }
+            item {
                 Button(
                     onClick = { addLocation() },
                     modifier = Modifier.fillMaxWidth(),
@@ -1148,6 +1161,19 @@ private fun CreateAdventureScreen(
                                 ) { Text("Entfernen") }
                             }
                         }
+                        OutlinedTextField(
+                            value = location.pointValue.takeIf { it > 0 }?.toString() ?: "",
+                            onValueChange = { text ->
+                                val pts = text.toIntOrNull() ?: 0
+                                locations = locations.mapIndexed { i, loc ->
+                                    if (i == index) loc.copy(pointValue = pts) else loc
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Punkte (0 = keine)") },
+                            singleLine = true,
+                            enabled = !isSubmitting,
+                        )
                         if (hintsExpanded) {
                             Column(
                                 modifier = Modifier.padding(start = 8.dp),
@@ -1313,6 +1339,8 @@ private fun EditAdventureScreen(
     var locationName by remember(adventure.id) { mutableStateOf("") }
     var locationLatitude by remember(adventure.id) { mutableStateOf("") }
     var locationLongitude by remember(adventure.id) { mutableStateOf("") }
+    var locationPointValue by remember(adventure.id) { mutableStateOf("") }
+    var pointValueByKey by remember(adventure.id) { mutableStateOf<Map<String, Int>>(emptyMap()) }
     var orderedLocations by remember(adventure.id) { mutableStateOf<List<EditLocationItem>>(emptyList()) }
     var removedExistingLocations by remember(adventure.id) { mutableStateOf<List<AdventureLocation>>(emptyList()) }
     var nextNewLocationId by remember(adventure.id) { mutableStateOf(0) }
@@ -1343,6 +1371,7 @@ private fun EditAdventureScreen(
             hintDraftsByKey = sorted.associate { loc ->
                 "existing-${loc.orderIndex}" to loc.hints.map { HintDraft(it.hintIndex, it.text, it.pointCost, it.imageUrl) }
             }
+            pointValueByKey = sorted.associate { loc -> "existing-${loc.orderIndex}" to loc.pointValue }
         }.onFailure {
             scope.launch {
                 snackbarHostState.showSnackbar("Orte konnten nicht geladen werden.", withDismissAction = true)
@@ -1382,14 +1411,17 @@ private fun EditAdventureScreen(
                     draft = AdventureLocationDraft(
                         name = locationName.trim(),
                         point = GeoPoint(latitude = parsedLatitude, longitude = parsedLongitude),
+                        pointValue = locationPointValue.toIntOrNull() ?: 0,
                     ),
                 )
                 orderedLocations = orderedLocations + newItem
                 hintDraftsByKey = hintDraftsByKey + (newItem.key to emptyList())
+                pointValueByKey = pointValueByKey + (newItem.key to (locationPointValue.toIntOrNull() ?: 0))
                 nextNewLocationId += 1
                 locationName = ""
                 locationLatitude = ""
                 locationLongitude = ""
+                locationPointValue = ""
             }
         }
     }
@@ -1440,7 +1472,9 @@ private fun EditAdventureScreen(
                         val newLocationItems = orderedLocations.mapNotNull { locationItem ->
                             locationItem as? EditLocationItem.New
                         }
-                        val newLocationDrafts = newLocationItems.map { it.draft }
+                        val newLocationDrafts = newLocationItems.map { item ->
+                            item.draft.copy(pointValue = pointValueByKey[item.key] ?: item.draft.pointValue)
+                        }
                         val appendedLocationsByLocalId = mutableMapOf<Int, AdventureLocation>()
 
                         updateAdventure(
@@ -1480,7 +1514,7 @@ private fun EditAdventureScreen(
                             reorderAdventureLocations(adventure.id, finalOrderIndexes)
                         }
 
-                        // Save hints for all locations
+                        // Save hints and point values for all locations
                         for (locationItem in orderedLocations) {
                             val hints = hintDraftsByKey[locationItem.key] ?: emptyList()
                             val locationId = when (locationItem) {
@@ -1489,6 +1523,12 @@ private fun EditAdventureScreen(
                             }
                             if (locationId > 0L) {
                                 saveHintsForLocation(locationId, hints)
+                                if (locationItem is EditLocationItem.Existing) {
+                                    updateAdventureLocationPointValue(
+                                        locationId,
+                                        pointValueByKey[locationItem.key] ?: locationItem.location.pointValue,
+                                    )
+                                }
                             }
                         }
                     }.onSuccess {
@@ -1830,6 +1870,7 @@ private fun EditAdventureScreen(
                                     onClick = {
                                         orderedLocations = orderedLocations - locationItem
                                         hintDraftsByKey = hintDraftsByKey - key
+                                        pointValueByKey = pointValueByKey - key
                                         expandedHintSections = expandedHintSections - key
                                         if (locationItem is EditLocationItem.Existing) {
                                             removedExistingLocations =
@@ -1841,6 +1882,16 @@ private fun EditAdventureScreen(
                                 ) { Text("Entfernen") }
                             }
                         }
+                        OutlinedTextField(
+                            value = (pointValueByKey[key] ?: 0).takeIf { it > 0 }?.toString() ?: "",
+                            onValueChange = { text ->
+                                pointValueByKey = pointValueByKey + (key to (text.toIntOrNull() ?: 0))
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Punkte (0 = keine)") },
+                            singleLine = true,
+                            enabled = !isSubmitting,
+                        )
                         if (hintsExpanded) {
                             Column(
                                 modifier = Modifier.padding(start = 8.dp),
@@ -2024,6 +2075,15 @@ private fun EditAdventureScreen(
                     onValueChange = { locationLongitude = it },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Ort Longitude") },
+                    singleLine = true,
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = locationPointValue,
+                    onValueChange = { locationPointValue = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Punkte (0 = keine)") },
                     singleLine = true,
                 )
             }
@@ -2458,6 +2518,7 @@ private fun startDialogDistanceLabel(startPoint: GeoPoint, currentLocation: GeoP
 @Composable
 private fun ProfileAndLeaderboardTab(
     currentUser: User,
+    refreshKey: Int,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -2468,13 +2529,13 @@ private fun ProfileAndLeaderboardTab(
     var leaderboardError by remember { mutableStateOf<String?>(null) }
     var selectedPeriod by remember { mutableStateOf(LeaderboardPeriod.ALL) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(refreshKey) {
         isLoadingProfile = true
         totalPoints = runCatching { getUserPoints(currentUser.id) }.getOrDefault(0)
         isLoadingProfile = false
     }
 
-    LaunchedEffect(selectedPeriod) {
+    LaunchedEffect(selectedPeriod, refreshKey) {
         isLoadingLeaderboard = true
         leaderboardError = null
         val result = runCatching { getLeaderboard(selectedPeriod, 50) }

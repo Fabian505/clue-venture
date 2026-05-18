@@ -300,13 +300,23 @@ fun AdventureGameScreen(
             expectingNewRouteDistanceForCheckpoint = true
             currentRouteDistanceMeters = null
             pendingRouteDistanceMeters = null
-            moveToNextCheckpoint(
-                adventure,
-                idx,
-                { nextIndex -> currentCheckpointIndex = nextIndex },
-                { gs -> gameState = gs },
-                onCheckpointAdvanced = { nextIndex -> pendingUnlockCheckpointIndex = nextIndex },
-            )
+
+            val nextIdx = idx + 1
+            if (nextIdx >= adventure.locations.size) {
+                // Last checkpoint reached — write is_completed = true immediately, before
+                // any points/profile logic, so a secondary failure can't prevent it.
+                currentAttempt?.id?.let { attemptId ->
+                    coroutineScope.launch {
+                        runCatching { markAttemptCompleted(attemptId) }
+                            .onFailure { e -> println("Error marking attempt complete: ${e.message}") }
+                    }
+                }
+                gameState = GameState.Complete
+            } else {
+                currentCheckpointIndex = nextIdx
+                pendingUnlockCheckpointIndex = nextIdx
+                gameState = GameState.Navigating
+            }
         }
     }
 
@@ -361,13 +371,19 @@ fun AdventureGameScreen(
         ) {
             isFinishingAttempt = true
             try {
-                pointsEarned = finishAdventureAttempt(attemptId)
+                pointsEarned = finishAdventureAttempt(
+                    attemptId = attemptId,
+                    userId = userId,
+                    startedAt = currentAttempt!!.startedAt,
+                    adventure = adventure,
+                )
                 hasFinishedAttempt = true
                 finishError = null
             } catch (e: Exception) {
                 println("Error finishing adventure: ${e.message}")
                 finishError =
-                    "Das Abenteuer konnte nicht vollstaendig abgeschlossen werden. Feedback kann erst nach einem erfolgreichen Abschluss gespeichert werden."
+                    "Abschlussbonus konnte nicht berechnet werden. Du kannst trotzdem Feedback geben."
+                hasFinishedAttempt = true
             } finally {
                 isFinishingAttempt = false
             }
@@ -633,9 +649,9 @@ fun AdventureGameScreen(
                                             }.onFailure { e ->
                                                 println("Error buying hint ${hint.hintIndex}: ${e.message}")
                                                 snackbarHostState.showSnackbar(
-                                                    "[DEBUG] ${e::class.simpleName}: ${e.message}",
+                                                    "Hint konnte nicht gekauft werden. Bitte versuche es erneut.",
                                                     withDismissAction = true,
-                                                    duration = SnackbarDuration.Indefinite,
+                                                    duration = SnackbarDuration.Short,
                                                 )
                                             }
                                         }
@@ -1280,22 +1296,3 @@ enum class GameState {
     Error,
 }
 
-// Helper function to move to next checkpoint
-private fun moveToNextCheckpoint(
-    adventure: Adventure,
-    currentIndex: Int,
-    updateIndex: (Int) -> Unit,
-    updateGameState: (GameState) -> Unit,
-    onCheckpointAdvanced: (Int) -> Unit,
-) {
-    val nextIndex = currentIndex + 1
-    if (nextIndex >= adventure.locations.size) {
-        // Adventure complete
-        updateGameState(GameState.Complete)
-    } else {
-        // Move to next waypoint
-        updateIndex(nextIndex)
-        onCheckpointAdvanced(nextIndex)
-        updateGameState(GameState.Navigating)
-    }
-}

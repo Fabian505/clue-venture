@@ -17,12 +17,12 @@ BEGIN
     IF p_period = 'week' THEN
         RETURN QUERY
             SELECT
-                COALESCE(u.username, u.email)::TEXT         AS display_name,
-                COALESCE(SUM(aa.points_earned), 0)::BIGINT  AS points
+                COALESCE(u.username, u.email)::TEXT          AS display_name,
+                COALESCE(SUM(aa.points_earned), 0)::BIGINT   AS points
             FROM adventure_attempts aa
             JOIN users u ON u.id = aa.user_id
             WHERE aa.completed_at >= now() - interval '7 days'
-              AND aa.points_earned IS NOT NULL
+              AND aa.is_completed = true
             GROUP BY u.id, u.username, u.email
             ORDER BY points DESC
             LIMIT p_limit;
@@ -30,12 +30,12 @@ BEGIN
     ELSIF p_period = 'month' THEN
         RETURN QUERY
             SELECT
-                COALESCE(u.username, u.email)::TEXT         AS display_name,
-                COALESCE(SUM(aa.points_earned), 0)::BIGINT  AS points
+                COALESCE(u.username, u.email)::TEXT          AS display_name,
+                COALESCE(SUM(aa.points_earned), 0)::BIGINT   AS points
             FROM adventure_attempts aa
             JOIN users u ON u.id = aa.user_id
             WHERE aa.completed_at >= now() - interval '30 days'
-              AND aa.points_earned IS NOT NULL
+              AND aa.is_completed = true
             GROUP BY u.id, u.username, u.email
             ORDER BY points DESC
             LIMIT p_limit;

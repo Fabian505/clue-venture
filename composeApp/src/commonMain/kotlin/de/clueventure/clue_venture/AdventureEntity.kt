@@ -239,8 +239,13 @@ data class AdventureAttemptInsertEntity(
 )
 
 @Serializable
-data class AdventureAttemptFinishEntity(
+data class AdventureAttemptMarkCompleteEntity(
     @SerialName("is_completed") val isCompleted: Boolean = true,
+)
+
+@Serializable
+data class AdventureAttemptFinishEntity(
+    @SerialName("is_completed") val isCompleted: Boolean,
     @SerialName("completed_at") val completedAt: String,
     @SerialName("time_spent_seconds") val timeSpentSeconds: Int,
     @SerialName("points_earned") val pointsEarned: Int,
@@ -248,10 +253,10 @@ data class AdventureAttemptFinishEntity(
 
 @Serializable
 data class AdventureAttemptCancelEntity(
-    @SerialName("is_completed") val isCompleted: Boolean = false,
+    @SerialName("is_completed") val isCompleted: Boolean,
     @SerialName("completed_at") val completedAt: String,
     @SerialName("time_spent_seconds") val timeSpentSeconds: Int,
-    @SerialName("points_earned") val pointsEarned: Int = 0,
+    @SerialName("points_earned") val pointsEarned: Int,
 )
 
 @Serializable

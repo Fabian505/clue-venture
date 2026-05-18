@@ -25,10 +25,31 @@ import java.net.URL
 
 actual fun currentTimeMillis(): Long = System.currentTimeMillis()
 
-private fun nowIso8601(): String {
+private fun parseTimestampToMillis(timestamp: String): Long? {
+    // PostgREST returns timestamps as "2026-05-18T12:34:56.123456+00:00" or similar.
+    // SimpleDateFormat can't handle 6-digit microseconds, so we truncate to milliseconds.
+    return runCatching {
+        val normalized = timestamp.replace(" ", "T").let { ts ->
+            val dotIdx = ts.indexOf('.')
+            if (dotIdx >= 0) {
+                // Keep only 3 fractional digits, drop the rest before the timezone
+                val tzIdx = ts.indexOfFirst { c -> c == '+' || c == 'Z' || (c == '-' && ts.indexOf('-', dotIdx) == ts.indexOf(c)) }
+                    .takeIf { it > dotIdx } ?: ts.length
+                ts.substring(0, (dotIdx + 4).coerceAtMost(tzIdx)) + "Z"
+            } else ts
+        }
+        val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+        sdf.timeZone = TimeZone.getTimeZone("UTC")
+        sdf.parse(normalized)?.time
+    }.getOrNull()
+}
+
+private fun nowIso8601(): String = millisToIso8601(System.currentTimeMillis())
+
+private fun millisToIso8601(millis: Long): String {
     val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
     sdf.timeZone = TimeZone.getTimeZone("UTC")
-    return sdf.format(Date())
+    return sdf.format(Date(millis))
 }
 
 internal object AndroidSessionStorage {
@@ -675,31 +696,39 @@ actual suspend fun startAdventureAttempt(adventureId: String, userId: String): A
     }
 }
 
-actual suspend fun finishAdventureAttempt(attemptId: Long): Int = withContext(Dispatchers.IO) {
+actual suspend fun markAttemptCompleted(attemptId: Long): Unit = withContext(Dispatchers.IO) {
+    supabaseClient.from("adventure_attempts")
+        .update(AdventureAttemptMarkCompleteEntity()) {
+            filter { eq("id", attemptId) }
+        }
+}
+
+actual suspend fun finishAdventureAttempt(
+    attemptId: Long,
+    userId: String,
+    startedAt: String,
+    adventure: Adventure,
+): Int = withContext(Dispatchers.IO) {
     try {
-        val attempt = supabaseClient.from("adventure_attempts")
-            .select()
-            .decodeList<AdventureAttemptEntity>()
-            .find { it.id == attemptId } ?: return@withContext 0
-
-        val adventure = supabaseClient.from("adventures")
-            .select()
-            .decodeList<AdventureEntity>()
-            .find { it.id == attempt.adventureId } ?: return@withContext 0
-
         val now = System.currentTimeMillis()
-        val startedAtMillis = attempt.startedAt.toLongOrNull() ?: now
-        val timeSpentSeconds = ((now - startedAtMillis) / 1000).toInt()
+        val startedAtMillis = parseTimestampToMillis(startedAt) ?: now
+        val timeSpentSeconds = ((now - startedAtMillis) / 1000).toInt().coerceAtLeast(0)
+        val completedAt = millisToIso8601(now)
+        val allPoints = listOf(adventure.startPoint) +
+            adventure.locations.sortedBy { it.orderIndex }.map { it.point }
+        val totalRouteMeters = allPoints.zipWithNext { a, b -> a.distanceTo(b) }.sum()
+        val expectedSeconds = (totalRouteMeters / 1.4).toInt().coerceAtLeast(1)
         val pointsEarned = calculateAdventurePoints(
             timeSpentSeconds,
-            adventure.estimatedDurationMinutes ?: 60,
+            expectedSeconds,
         ) + adventure.completionPoints
 
+        // Critical: mark attempt as completed — must succeed or we throw.
         supabaseClient.from("adventure_attempts")
             .update(
                 AdventureAttemptFinishEntity(
                     isCompleted = true,
-                    completedAt = nowIso8601(),
+                    completedAt = completedAt,
                     timeSpentSeconds = timeSpentSeconds,
                     pointsEarned = pointsEarned,
                 ),
@@ -707,48 +736,53 @@ actual suspend fun finishAdventureAttempt(attemptId: Long): Int = withContext(Di
                 filter { eq("id", attemptId) }
             }
 
-        // Update user profile — use atomic RPC upsert so the row is created if missing
-        supabaseClient.postgrest.rpc(
-            "increment_user_points",
-            buildJsonObject {
-                put("p_user_id", attempt.userId)
-                put("p_delta", pointsEarned)
-            },
-        )
-        // Increment adventures_completed (row guaranteed to exist after RPC above)
-        val userProfile = getUserProfile(attempt.userId)
-        if (userProfile != null) {
-            supabaseClient.from("user_profiles")
-                .update(
-                    mapOf("adventures_completed" to (userProfile.adventuresCompleted + 1)),
-                ) {
-                    filter { eq("user_id", attempt.userId) }
-                }
-        }
+        // Secondary: award points and update profile — failures are logged but don't block completion.
+        runCatching {
+            supabaseClient.postgrest.rpc(
+                "increment_user_points",
+                buildJsonObject {
+                    put("p_user_id", userId)
+                    put("p_delta", pointsEarned)
+                },
+            )
+        }.onFailure { Log.e("AdventureRepo", "Failed to increment points for attempt $attemptId", it) }
+
+        runCatching {
+            val userProfile = getUserProfile(userId)
+            if (userProfile != null) {
+                supabaseClient.from("user_profiles")
+                    .update(
+                        mapOf("adventures_completed" to (userProfile.adventuresCompleted + 1)),
+                    ) {
+                        filter { eq("user_id", userId) }
+                    }
+            }
+        }.onFailure { Log.e("AdventureRepo", "Failed to update adventures_completed for $userId", it) }
 
         pointsEarned
     } catch (e: Exception) {
-        println("Error finishing adventure attempt: ${e.message}")
-        0
+        Log.e("AdventureRepo", "Error finishing adventure attempt $attemptId", e)
+        throw e
     }
 }
 
 actual suspend fun cancelAdventureAttempt(attemptId: Long): Unit = withContext(Dispatchers.IO) {
     try {
         val attempt = supabaseClient.from("adventure_attempts")
-            .select()
+            .select { filter { eq("id", attemptId) } }
             .decodeList<AdventureAttemptEntity>()
-            .find { it.id == attemptId } ?: throw IllegalStateException("Adventure attempt not found")
+            .firstOrNull() ?: throw IllegalStateException("Adventure attempt not found")
 
         val nowMillis = System.currentTimeMillis()
-        val startedAtMillis = attempt.startedAt.toLongOrNull() ?: nowMillis
+        val startedAtMillis = parseTimestampToMillis(attempt.startedAt) ?: nowMillis
         val timeSpentSeconds = ((nowMillis - startedAtMillis) / 1000).toInt().coerceAtLeast(0)
+        val completedAt = millisToIso8601(startedAtMillis + timeSpentSeconds * 1000L)
 
         supabaseClient.from("adventure_attempts")
             .update(
                 AdventureAttemptCancelEntity(
                     isCompleted = false,
-                    completedAt = nowIso8601(),
+                    completedAt = completedAt,
                     timeSpentSeconds = timeSpentSeconds,
                     pointsEarned = 0,
                 ),
@@ -920,6 +954,16 @@ actual suspend fun saveHintsForLocation(locationId: Long, hints: List<HintDraft>
             })
     }
     Unit
+}
+
+actual suspend fun updateAdventureLocationPointValue(
+    locationId: Long,
+    pointValue: Int,
+): Unit = withContext(Dispatchers.IO) {
+    supabaseClient.from("adventure_locations")
+        .update(mapOf("point_value" to pointValue)) {
+            filter { eq("id", locationId) }
+        }
 }
 
 actual suspend fun uploadHintImage(imageBytes: ByteArray): String = withContext(Dispatchers.IO) {

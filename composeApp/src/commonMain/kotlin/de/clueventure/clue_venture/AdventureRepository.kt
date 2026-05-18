@@ -56,7 +56,9 @@ expect suspend fun getUserProfile(userId: String): UserProfile?
 
 expect suspend fun startAdventureAttempt(adventureId: String, userId: String): AdventureAttempt
 
-expect suspend fun finishAdventureAttempt(attemptId: Long): Int
+expect suspend fun markAttemptCompleted(attemptId: Long)
+
+expect suspend fun finishAdventureAttempt(attemptId: Long, userId: String, startedAt: String, adventure: Adventure): Int
 
 expect suspend fun cancelAdventureAttempt(attemptId: Long)
 
@@ -75,6 +77,8 @@ expect suspend fun submitAdventureFeedback(draft: AdventureFeedbackDraft): Adven
 expect suspend fun getHints(locationId: Long): List<Hint>
 
 expect suspend fun saveHintsForLocation(locationId: Long, hints: List<HintDraft>)
+
+expect suspend fun updateAdventureLocationPointValue(locationId: Long, pointValue: Int)
 
 expect suspend fun uploadHintImage(imageBytes: ByteArray): String
 
