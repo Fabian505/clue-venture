@@ -1,5 +1,6 @@
 package de.clueventure.clue_venture
 
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -36,7 +37,7 @@ data class AdventureUpdateEntity(
     val summary: String,
     @SerialName("start_latitude") val startLatitude: Double,
     @SerialName("start_longitude") val startLongitude: Double,
-    val difficulty: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS) val difficulty: String? = null,
     @SerialName("estimated_duration_minutes") val estimatedDurationMinutes: Int? = null,
     @SerialName("is_public") val isPublic: Boolean,
 )

@@ -58,7 +58,7 @@ expect suspend fun startAdventureAttempt(adventureId: String, userId: String): A
 
 expect suspend fun markAttemptCompleted(attemptId: Long)
 
-expect suspend fun finishAdventureAttempt(attemptId: Long, userId: String, startedAt: String, adventure: Adventure): Int
+expect suspend fun finishAdventureAttempt(attemptId: Long, userId: String, startedAt: String, adventure: Adventure, accumulatedPoints: Int = 0): Int
 
 expect suspend fun cancelAdventureAttempt(attemptId: Long)
 
@@ -79,6 +79,8 @@ expect suspend fun getHints(locationId: Long): List<Hint>
 expect suspend fun saveHintsForLocation(locationId: Long, hints: List<HintDraft>)
 
 expect suspend fun updateAdventureLocationPointValue(locationId: Long, pointValue: Int)
+
+expect suspend fun updateAdventureLocationTimeLimitSeconds(locationId: Long, timeLimitSeconds: Int?)
 
 expect suspend fun uploadHintImage(imageBytes: ByteArray): String
 

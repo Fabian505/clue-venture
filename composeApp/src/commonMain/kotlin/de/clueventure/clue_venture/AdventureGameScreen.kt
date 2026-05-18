@@ -136,6 +136,7 @@ fun AdventureGameScreen(
     var pointsEarned by remember { mutableIntStateOf(0) }
     var correctAnswerCount by remember { mutableIntStateOf(0) }
     var checkpointPointsEarned by remember { mutableIntStateOf(0) }
+    var hintCostsSpent by remember { mutableIntStateOf(0) }
     var hasFinishedAttempt by remember { mutableStateOf(false) }
     var isFinishingAttempt by remember { mutableStateOf(false) }
     var isCancellingAttempt by remember { mutableStateOf(false) }
@@ -376,6 +377,7 @@ fun AdventureGameScreen(
                     userId = userId,
                     startedAt = currentAttempt!!.startedAt,
                     adventure = adventure,
+                    accumulatedPoints = checkpointPointsEarned + quizPointsEarned,
                 )
                 hasFinishedAttempt = true
                 finishError = null
@@ -394,7 +396,8 @@ fun AdventureGameScreen(
         if (isAdventureCancelled) {
             callbacks.onClose()
         } else {
-            callbacks.onAdventureComplete(pointsEarned)
+            val totalNetPoints = pointsEarned + checkpointPointsEarned + quizPointsEarned - hintCostsSpent
+            callbacks.onAdventureComplete(totalNetPoints)
         }
     }
 
@@ -645,6 +648,7 @@ fun AdventureGameScreen(
                                             runCatching {
                                                 updateUserPoints(userId, -hint.pointCost)
                                                 boughtHintIndices = boughtHintIndices + hint.hintIndex
+                                                hintCostsSpent += hint.pointCost
                                                 userPoints = runCatching { getUserPoints(userId) }.getOrDefault(userPoints)
                                             }.onFailure { e ->
                                                 println("Error buying hint ${hint.hintIndex}: ${e.message}")
@@ -814,6 +818,7 @@ fun AdventureGameScreen(
                                 checkpointPoints = checkpointPointsEarned,
                                 quizPoints = correctAnswerCount * PUZZLE_POINTS_PER_CORRECT_ANSWER,
                                 completionBonus = pointsEarned,
+                                hintCosts = hintCostsSpent,
                                 isLoading = isFinishingAttempt,
                             )
                         }
@@ -935,9 +940,10 @@ private fun AdventurePointsSummary(
     checkpointPoints: Int,
     quizPoints: Int,
     completionBonus: Int,
+    hintCosts: Int,
     isLoading: Boolean,
 ) {
-    val totalPoints = checkpointPoints + quizPoints + completionBonus
+    val totalPoints = checkpointPoints + quizPoints + completionBonus - hintCosts
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -963,6 +969,10 @@ private fun AdventurePointsSummary(
                 PointsRow("Abschlussbonus", null)
             } else {
                 PointsRow("Abschlussbonus", completionBonus)
+            }
+
+            if (hintCosts > 0) {
+                PointsRow("Hints", -hintCosts)
             }
 
             androidx.compose.material3.HorizontalDivider()

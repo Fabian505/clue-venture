@@ -687,6 +687,7 @@ private fun CreateAdventureScreen(
     var locationLatitude by remember { mutableStateOf("") }
     var locationLongitude by remember { mutableStateOf("") }
     var locationPointValue by remember { mutableStateOf("") }
+    var locationTimeLimitSeconds by remember { mutableStateOf("") }
     var locations by remember { mutableStateOf<List<AdventureLocationDraft>>(emptyList()) }
 
     var isSubmitting by remember { mutableStateOf(false) }
@@ -717,11 +718,13 @@ private fun CreateAdventureScreen(
                     name = locationName.trim(),
                     point = GeoPoint(latitude = parsedLatitude, longitude = parsedLongitude),
                     pointValue = locationPointValue.toIntOrNull() ?: 0,
+                    timeLimitSeconds = locationTimeLimitSeconds.toIntOrNull()?.takeIf { it > 0 },
                 )
                 locationName = ""
                 locationLatitude = ""
                 locationLongitude = ""
                 locationPointValue = ""
+                locationTimeLimitSeconds = ""
             }
         }
     }
@@ -1073,6 +1076,15 @@ private fun CreateAdventureScreen(
                 )
             }
             item {
+                OutlinedTextField(
+                    value = locationTimeLimitSeconds,
+                    onValueChange = { locationTimeLimitSeconds = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Zeitlimit in Sekunden (leer = keines)") },
+                    singleLine = true,
+                )
+            }
+            item {
                 Button(
                     onClick = { addLocation() },
                     modifier = Modifier.fillMaxWidth(),
@@ -1340,7 +1352,9 @@ private fun EditAdventureScreen(
     var locationLatitude by remember(adventure.id) { mutableStateOf("") }
     var locationLongitude by remember(adventure.id) { mutableStateOf("") }
     var locationPointValue by remember(adventure.id) { mutableStateOf("") }
+    var locationTimeLimitSeconds by remember(adventure.id) { mutableStateOf("") }
     var pointValueByKey by remember(adventure.id) { mutableStateOf<Map<String, Int>>(emptyMap()) }
+    var timeLimitByKey by remember(adventure.id) { mutableStateOf<Map<String, Int?>>(emptyMap()) }
     var orderedLocations by remember(adventure.id) { mutableStateOf<List<EditLocationItem>>(emptyList()) }
     var removedExistingLocations by remember(adventure.id) { mutableStateOf<List<AdventureLocation>>(emptyList()) }
     var nextNewLocationId by remember(adventure.id) { mutableStateOf(0) }
@@ -1372,6 +1386,7 @@ private fun EditAdventureScreen(
                 "existing-${loc.orderIndex}" to loc.hints.map { HintDraft(it.hintIndex, it.text, it.pointCost, it.imageUrl) }
             }
             pointValueByKey = sorted.associate { loc -> "existing-${loc.orderIndex}" to loc.pointValue }
+            timeLimitByKey = sorted.associate { loc -> "existing-${loc.orderIndex}" to loc.timeLimitSeconds }
         }.onFailure {
             scope.launch {
                 snackbarHostState.showSnackbar("Orte konnten nicht geladen werden.", withDismissAction = true)
@@ -1406,22 +1421,26 @@ private fun EditAdventureScreen(
 
             else -> {
                 errorMessage = null
+                val parsedTimeLimitSeconds = locationTimeLimitSeconds.toIntOrNull()?.takeIf { it > 0 }
                 val newItem = EditLocationItem.New(
                     localId = nextNewLocationId,
                     draft = AdventureLocationDraft(
                         name = locationName.trim(),
                         point = GeoPoint(latitude = parsedLatitude, longitude = parsedLongitude),
                         pointValue = locationPointValue.toIntOrNull() ?: 0,
+                        timeLimitSeconds = parsedTimeLimitSeconds,
                     ),
                 )
                 orderedLocations = orderedLocations + newItem
                 hintDraftsByKey = hintDraftsByKey + (newItem.key to emptyList())
                 pointValueByKey = pointValueByKey + (newItem.key to (locationPointValue.toIntOrNull() ?: 0))
+                timeLimitByKey = timeLimitByKey + (newItem.key to parsedTimeLimitSeconds)
                 nextNewLocationId += 1
                 locationName = ""
                 locationLatitude = ""
                 locationLongitude = ""
                 locationPointValue = ""
+                locationTimeLimitSeconds = ""
             }
         }
     }
@@ -1473,7 +1492,10 @@ private fun EditAdventureScreen(
                             locationItem as? EditLocationItem.New
                         }
                         val newLocationDrafts = newLocationItems.map { item ->
-                            item.draft.copy(pointValue = pointValueByKey[item.key] ?: item.draft.pointValue)
+                            item.draft.copy(
+                                pointValue = pointValueByKey[item.key] ?: item.draft.pointValue,
+                                timeLimitSeconds = timeLimitByKey[item.key] ?: item.draft.timeLimitSeconds,
+                            )
                         }
                         val appendedLocationsByLocalId = mutableMapOf<Int, AdventureLocation>()
 
@@ -1527,6 +1549,13 @@ private fun EditAdventureScreen(
                                     updateAdventureLocationPointValue(
                                         locationId,
                                         pointValueByKey[locationItem.key] ?: locationItem.location.pointValue,
+                                    )
+                                    updateAdventureLocationTimeLimitSeconds(
+                                        locationId,
+                                        if (timeLimitByKey.containsKey(locationItem.key))
+                                            timeLimitByKey[locationItem.key]
+                                        else
+                                            locationItem.location.timeLimitSeconds,
                                     )
                                 }
                             }
@@ -1871,6 +1900,7 @@ private fun EditAdventureScreen(
                                         orderedLocations = orderedLocations - locationItem
                                         hintDraftsByKey = hintDraftsByKey - key
                                         pointValueByKey = pointValueByKey - key
+                                        timeLimitByKey = timeLimitByKey - key
                                         expandedHintSections = expandedHintSections - key
                                         if (locationItem is EditLocationItem.Existing) {
                                             removedExistingLocations =
@@ -1889,6 +1919,16 @@ private fun EditAdventureScreen(
                             },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text("Punkte (0 = keine)") },
+                            singleLine = true,
+                            enabled = !isSubmitting,
+                        )
+                        OutlinedTextField(
+                            value = timeLimitByKey[key]?.toString() ?: "",
+                            onValueChange = { text ->
+                                timeLimitByKey = timeLimitByKey + (key to text.toIntOrNull()?.takeIf { it > 0 })
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Zeitlimit in Sekunden (leer = keines)") },
                             singleLine = true,
                             enabled = !isSubmitting,
                         )
@@ -2084,6 +2124,15 @@ private fun EditAdventureScreen(
                     onValueChange = { locationPointValue = it },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Punkte (0 = keine)") },
+                    singleLine = true,
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = locationTimeLimitSeconds,
+                    onValueChange = { locationTimeLimitSeconds = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Zeitlimit in Sekunden (leer = keines)") },
                     singleLine = true,
                 )
             }

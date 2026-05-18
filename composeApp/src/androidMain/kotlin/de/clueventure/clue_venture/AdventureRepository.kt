@@ -703,6 +703,7 @@ actual suspend fun finishAdventureAttempt(
     userId: String,
     startedAt: String,
     adventure: Adventure,
+    accumulatedPoints: Int,
 ): Int = withContext(Dispatchers.IO) {
     try {
         val now = System.currentTimeMillis()
@@ -713,11 +714,14 @@ actual suspend fun finishAdventureAttempt(
             adventure.locations.sortedBy { it.orderIndex }.map { it.point }
         val totalRouteMeters = allPoints.zipWithNext { a, b -> a.distanceTo(b) }.sum()
         val expectedSeconds = (totalRouteMeters / 1.4).toInt().coerceAtLeast(1)
-        val pointsEarned = calculateAdventurePoints(
+        val completionBonus = calculateAdventurePoints(
             timeSpentSeconds,
             expectedSeconds,
             adventure.difficulty,
         ) + adventure.completionPoints
+        // accumulatedPoints (checkpoints + quiz) were already added to user_profiles live;
+        // include them here so the leaderboard (which sums adventure_attempts.points_earned) counts them.
+        val pointsEarned = completionBonus + accumulatedPoints
 
         // Critical: mark attempt as completed — must succeed or we throw.
         supabaseClient.from("adventure_attempts")
@@ -732,13 +736,15 @@ actual suspend fun finishAdventureAttempt(
                 filter { eq("id", attemptId) }
             }
 
-        // Secondary: award points and update profile — failures are logged but don't block completion.
+        // Secondary: award completion bonus and update profile — failures are logged but don't block completion.
+        // Only completionBonus is incremented here; accumulatedPoints (checkpoint + quiz) were already
+        // added to user_profiles live during gameplay via updateUserPoints().
         runCatching {
             supabaseClient.postgrest.rpc(
                 "increment_user_points",
                 buildJsonObject {
                     put("p_user_id", userId)
-                    put("p_delta", pointsEarned)
+                    put("p_delta", completionBonus)
                 },
             )
         }.onFailure { Log.e("AdventureRepo", "Failed to increment points for attempt $attemptId", it) }
@@ -755,7 +761,7 @@ actual suspend fun finishAdventureAttempt(
             }
         }.onFailure { Log.e("AdventureRepo", "Failed to update adventures_completed for $userId", it) }
 
-        pointsEarned
+        completionBonus
     } catch (e: Exception) {
         Log.e("AdventureRepo", "Error finishing adventure attempt $attemptId", e)
         throw e
@@ -958,6 +964,16 @@ actual suspend fun updateAdventureLocationPointValue(
 ): Unit = withContext(Dispatchers.IO) {
     supabaseClient.from("adventure_locations")
         .update(mapOf("point_value" to pointValue)) {
+            filter { eq("id", locationId) }
+        }
+}
+
+actual suspend fun updateAdventureLocationTimeLimitSeconds(
+    locationId: Long,
+    timeLimitSeconds: Int?,
+): Unit = withContext(Dispatchers.IO) {
+    supabaseClient.from("adventure_locations")
+        .update(mapOf("time_limit_seconds" to timeLimitSeconds)) {
             filter { eq("id", locationId) }
         }
 }
