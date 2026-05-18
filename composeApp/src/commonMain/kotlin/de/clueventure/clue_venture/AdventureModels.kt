@@ -466,13 +466,13 @@ fun effectiveTimeLimitSeconds(
  */
 fun calculateAdventurePoints(
     timeSpentSeconds: Int,
-    estimatedMinutes: Int,
+    expectedSeconds: Int,
 ): Int {
-    val estimatedSeconds = estimatedMinutes * 60
-    val timeRatio = timeSpentSeconds.toDouble() / estimatedSeconds
-    val timeMultiplier = (1.0 - timeRatio.coerceIn(0.0, 1.0))
-    val basePoints = (1000 * timeMultiplier).toInt()
-    return maxOf(basePoints, 100)
+    if (timeSpentSeconds <= expectedSeconds) return 1000
+    if (timeSpentSeconds >= 2 * expectedSeconds) return 100
+    val overtime = timeSpentSeconds - expectedSeconds
+    val decayFraction = overtime.toDouble() / expectedSeconds.coerceAtLeast(1)
+    return (1000 - (900 * decayFraction)).toInt()
 }
 
 fun unlockedQuestionsForRouteDistance(routeDistanceMeters: Double?): Int {
@@ -505,10 +505,10 @@ fun calculateCheckpointPoints(
     timeLimitSeconds: Int?,
 ): Int {
     if (timeLimitSeconds == null || elapsedSeconds <= timeLimitSeconds) return basePoints
+    if (elapsedSeconds >= 2 * timeLimitSeconds) return maxOf((basePoints * 0.1).toInt(), 1)
     val overtime = elapsedSeconds - timeLimitSeconds
-    val decayFraction = (overtime.toDouble() / timeLimitSeconds).coerceIn(0.0, 1.0)
-    val reduced = (basePoints * (1.0 - 0.5 * decayFraction)).toInt()
-    return maxOf(reduced, basePoints / 2)
+    val decayFraction = overtime.toDouble() / timeLimitSeconds
+    return (basePoints * (1.0 - 0.9 * decayFraction)).toInt()
 }
 
 fun calculateAvailableQuestionCount(
