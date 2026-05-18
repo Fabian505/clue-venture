@@ -49,6 +49,7 @@ data class AdventureDraft(
     val locations: List<AdventureLocationDraft>,
     val quizQuestions: List<QuizQuestionDraft> = emptyList(),
     val isPublic: Boolean = false,
+    val completionPoints: Int = 0,
 )
 
 data class AdventureMetadataDraft(
@@ -58,6 +59,7 @@ data class AdventureMetadataDraft(
     val difficulty: String?,
     val estimatedDurationMinutes: Int?,
     val isPublic: Boolean = false,
+    val completionPoints: Int = 0,
 )
 
 data class AdventureLocationDraft(
@@ -528,3 +530,10 @@ fun calculateAvailableQuestionCount(
 }
 
 enum class LeaderboardPeriod { ALL, WEEK, MONTH }
+
+data class PersonalStats(
+    val totalEarned: Int,
+    val completedCount: Int,
+    val bestResult: Int,
+    val currentBalance: Int,
+)

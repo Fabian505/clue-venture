@@ -140,7 +140,7 @@ actual suspend fun createAdventure(draft: AdventureDraft): Adventure = withConte
                 startLongitude = draft.startPoint.longitude,
                 difficulty = draft.difficulty,
                 estimatedDurationMinutes = draft.estimatedDurationMinutes,
-                completionPoints = 0,
+                completionPoints = draft.completionPoints,
                 isPublic = draft.isPublic,
                 createdBy = loadCurrentUser()?.id,
             ),
@@ -397,6 +397,7 @@ actual suspend fun updateAdventure(adventureId: String, draft: AdventureMetadata
                 difficulty = draft.difficulty,
                 estimatedDurationMinutes = draft.estimatedDurationMinutes,
                 isPublic = draft.isPublic,
+                completionPoints = draft.completionPoints,
             ),
         ) {
             filter {
@@ -1042,6 +1043,24 @@ actual suspend fun getLeaderboard(period: LeaderboardPeriod, limit: Int): List<P
         },
     ).decodeList<LeaderboardEntryEntity>()
         .map { it.displayName to it.points.toInt() }
+}
+
+actual suspend fun getPersonalStats(userId: String): PersonalStats = withContext(Dispatchers.IO) {
+    val attempts = supabaseClient.from("adventure_attempts")
+        .select() {
+            filter {
+                eq("user_id", userId)
+                eq("is_completed", true)
+            }
+        }
+        .decodeList<AdventureAttemptEntity>()
+    val earned = attempts.map { it.pointsEarned ?: 0 }
+    PersonalStats(
+        totalEarned = earned.sum(),
+        completedCount = attempts.size,
+        bestResult = earned.maxOrNull() ?: 0,
+        currentBalance = getUserPoints(userId),
+    )
 }
 
 actual suspend fun submitAdventureFeedback(draft: AdventureFeedbackDraft): AdventureFeedback = withContext(Dispatchers.IO) {

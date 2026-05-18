@@ -90,6 +90,8 @@ expect suspend fun updateUserPoints(userId: String, pointsDelta: Int)
 
 expect suspend fun getLeaderboard(period: LeaderboardPeriod = LeaderboardPeriod.ALL, limit: Int = 50): List<Pair<String, Int>>
 
+expect suspend fun getPersonalStats(userId: String): PersonalStats
+
 // ============================================================================
 // QUIZ MANAGEMENT REPOSITORY FUNCTIONS
 // ============================================================================

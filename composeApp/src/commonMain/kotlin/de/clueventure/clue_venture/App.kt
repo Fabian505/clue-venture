@@ -680,6 +680,7 @@ private fun CreateAdventureScreen(
     var summary by remember { mutableStateOf("") }
     var difficulty by remember { mutableStateOf("") }
     var isPublic by remember { mutableStateOf(false) }
+    var completionPoints by remember { mutableStateOf("") }
     var startLatitude by remember { mutableStateOf("") }
     var startLongitude by remember { mutableStateOf("") }
 
@@ -772,6 +773,7 @@ private fun CreateAdventureScreen(
                                 locations = locations,
                                 quizQuestions = quizQuestions,
                                 isPublic = isPublic,
+                                completionPoints = completionPoints.toIntOrNull()?.coerceAtLeast(0) ?: 0,
                             ),
                         )
                     }.onSuccess { createdAdventure ->
@@ -946,6 +948,15 @@ private fun CreateAdventureScreen(
                         onCheckedChange = { isPublic = it },
                     )
                 }
+            }
+            item {
+                OutlinedTextField(
+                    value = completionPoints,
+                    onValueChange = { completionPoints = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Abschlussbonus (Punkte)") },
+                    singleLine = true,
+                )
             }
             item {
                 Text(
@@ -1345,6 +1356,7 @@ private fun EditAdventureScreen(
     var summary by remember(adventure.id) { mutableStateOf(adventure.summary) }
     var difficulty by remember(adventure.id) { mutableStateOf(adventure.difficulty.orEmpty()) }
     var isPublic by remember(adventure.id) { mutableStateOf(adventure.isPublic) }
+    var completionPoints by remember(adventure.id) { mutableStateOf(adventure.completionPoints.takeIf { it > 0 }?.toString() ?: "") }
     var startLatitude by remember(adventure.id) { mutableStateOf(adventure.startPoint.latitude.toString()) }
     var startLongitude by remember(adventure.id) { mutableStateOf(adventure.startPoint.longitude.toString()) }
 
@@ -1508,6 +1520,7 @@ private fun EditAdventureScreen(
                                 difficulty = difficulty.takeIf { it.isNotBlank() }?.trim(),
                                 estimatedDurationMinutes = calculatedDurationMinutes,
                                 isPublic = isPublic,
+                                completionPoints = completionPoints.toIntOrNull()?.coerceAtLeast(0) ?: 0,
                             ),
                         )
 
@@ -1752,6 +1765,15 @@ private fun EditAdventureScreen(
                         onCheckedChange = { isPublic = it },
                     )
                 }
+            }
+            item {
+                OutlinedTextField(
+                    value = completionPoints,
+                    onValueChange = { completionPoints = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Abschlussbonus (Punkte)") },
+                    singleLine = true,
+                )
             }
             item {
                 Text(
@@ -2568,7 +2590,7 @@ private fun ProfileAndLeaderboardTab(
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var totalPoints by remember { mutableStateOf<Int?>(null) }
+    var stats by remember { mutableStateOf<PersonalStats?>(null) }
     var leaderboard by remember { mutableStateOf<List<Pair<String, Int>>>(emptyList()) }
     var isLoadingProfile by remember { mutableStateOf(false) }
     var isLoadingLeaderboard by remember { mutableStateOf(false) }
@@ -2577,7 +2599,7 @@ private fun ProfileAndLeaderboardTab(
 
     LaunchedEffect(refreshKey) {
         isLoadingProfile = true
-        totalPoints = runCatching { getUserPoints(currentUser.id) }.getOrDefault(0)
+        stats = runCatching { getPersonalStats(currentUser.id) }.getOrNull()
         isLoadingProfile = false
     }
 
@@ -2616,12 +2638,46 @@ private fun ProfileAndLeaderboardTab(
                         text = currentUser.email,
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                    Text(
-                        text = if (isLoadingProfile) "Punkte werden geladen..."
-                               else totalPoints?.let { "Punkte: $it" } ?: "–",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
+                    if (isLoadingProfile) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp).align(Alignment.CenterHorizontally),
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        val s = stats
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                StatItem(
+                                    label = "Gesamtpunkte",
+                                    value = s?.totalEarned?.toString() ?: "–",
+                                    modifier = Modifier.weight(1f),
+                                )
+                                StatItem(
+                                    label = "Abgeschlossene Abenteuer",
+                                    value = s?.completedCount?.toString() ?: "–",
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                StatItem(
+                                    label = "Bestes Ergebnis",
+                                    value = s?.bestResult?.toString() ?: "–",
+                                    modifier = Modifier.weight(1f),
+                                )
+                                StatItem(
+                                    label = "Aktuelles Guthaben",
+                                    value = s?.currentBalance?.toString() ?: "–",
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                    }
                     Button(
                         onClick = onLogout,
                         modifier = Modifier.fillMaxWidth(),
@@ -2722,6 +2778,31 @@ private fun ProfileAndLeaderboardTab(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun StatItem(label: String, value: String, modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
         }
     }
 }

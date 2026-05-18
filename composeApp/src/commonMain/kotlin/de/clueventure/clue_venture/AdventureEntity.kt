@@ -40,6 +40,7 @@ data class AdventureUpdateEntity(
     @EncodeDefault(EncodeDefault.Mode.ALWAYS) val difficulty: String? = null,
     @SerialName("estimated_duration_minutes") val estimatedDurationMinutes: Int? = null,
     @SerialName("is_public") val isPublic: Boolean,
+    @SerialName("completion_points") val completionPoints: Int = 0,
 )
 
 @Serializable
