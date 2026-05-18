@@ -619,8 +619,6 @@ fun AdventureGameScreen(
                         ) {
                             currentWaypoint?.let { waypoint ->
                                 NavigationIndicator(
-                                    currentLocation = currentLocationState?.point,
-                                    targetLocation = waypoint.point,
                                     targetName = waypoint.name,
                                     quizPointsEarned = quizPointsEarned,
                                     userPoints = userPoints,
@@ -1087,22 +1085,11 @@ private fun StarRatingInput(
 
 @Composable
 private fun NavigationIndicator(
-    currentLocation: GeoPoint?,
-    targetLocation: GeoPoint,
     targetName: String,
     quizPointsEarned: Int,
     userPoints: Int,
     modifier: Modifier = Modifier,
 ) {
-    val distanceText = currentLocation?.distanceTo(targetLocation)?.let { distanceMeters ->
-        if (distanceMeters >= 1_000) {
-            val kilometers = distanceMeters / 1_000.0
-            "Entfernung zu $targetName: ${(kilometers * 10).toInt() / 10.0} km"
-        } else {
-            "Entfernung zu $targetName: ${distanceMeters.toInt()} m"
-        }
-    } ?: "Position wird ermittelt..."
-
     Card(
         modifier = modifier,
         colors = CardDefaults.cardColors(
@@ -1123,11 +1110,6 @@ private fun NavigationIndicator(
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = distanceText,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
                 text = "Quiz-Punkte: $quizPointsEarned",
