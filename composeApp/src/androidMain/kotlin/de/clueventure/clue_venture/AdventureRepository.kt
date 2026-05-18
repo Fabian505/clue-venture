@@ -768,6 +768,8 @@ actual suspend fun finishAdventureAttempt(
     }
 }
 
+// Checkpoint and quiz points awarded live during the run are NOT rolled back on cancel — only the
+// completion bonus is withheld. The attempt is marked is_completed=false with points_earned=0.
 actual suspend fun cancelAdventureAttempt(attemptId: Long): Unit = withContext(Dispatchers.IO) {
     try {
         val attempt = supabaseClient.from("adventure_attempts")
