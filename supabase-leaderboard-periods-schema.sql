@@ -21,8 +21,9 @@ BEGIN
                 COALESCE(SUM(aa.points_earned), 0)::BIGINT   AS points
             FROM adventure_attempts aa
             JOIN users u ON u.id = aa.user_id
-            WHERE aa.completed_at >= now() - interval '7 days'
-              AND aa.is_completed = true
+            WHERE aa.is_completed = true
+              AND aa.completed_at >= date_trunc('week', now())
+              AND aa.completed_at <  date_trunc('week', now()) + interval '7 days'
             GROUP BY u.id, u.username, u.email
             ORDER BY points DESC
             LIMIT p_limit;
@@ -34,8 +35,9 @@ BEGIN
                 COALESCE(SUM(aa.points_earned), 0)::BIGINT   AS points
             FROM adventure_attempts aa
             JOIN users u ON u.id = aa.user_id
-            WHERE aa.completed_at >= now() - interval '30 days'
-              AND aa.is_completed = true
+            WHERE aa.is_completed = true
+              AND aa.completed_at >= date_trunc('month', now())
+              AND aa.completed_at <  date_trunc('month', now()) + interval '1 month'
             GROUP BY u.id, u.username, u.email
             ORDER BY points DESC
             LIMIT p_limit;
@@ -44,9 +46,11 @@ BEGIN
         RETURN QUERY
             SELECT
                 COALESCE(u.username, u.email)::TEXT          AS display_name,
-                COALESCE(up.total_points, 0)::BIGINT         AS points
-            FROM users u
-            LEFT JOIN user_profiles up ON up.user_id = u.id
+                COALESCE(SUM(aa.points_earned), 0)::BIGINT   AS points
+            FROM adventure_attempts aa
+            JOIN users u ON u.id = aa.user_id
+            WHERE aa.is_completed = true
+            GROUP BY u.id, u.username, u.email
             ORDER BY points DESC
             LIMIT p_limit;
     END IF;
