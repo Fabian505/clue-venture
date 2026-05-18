@@ -716,6 +716,7 @@ actual suspend fun finishAdventureAttempt(
         val pointsEarned = calculateAdventurePoints(
             timeSpentSeconds,
             expectedSeconds,
+            adventure.difficulty,
         ) + adventure.completionPoints
 
         // Critical: mark attempt as completed — must succeed or we throw.

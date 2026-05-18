@@ -467,12 +467,18 @@ fun effectiveTimeLimitSeconds(
 fun calculateAdventurePoints(
     timeSpentSeconds: Int,
     expectedSeconds: Int,
+    difficulty: String? = null,
 ): Int {
-    if (timeSpentSeconds <= expectedSeconds) return 1000
-    if (timeSpentSeconds >= 2 * expectedSeconds) return 100
+    val maxPoints = when (difficulty?.lowercase()) {
+        "mittel" -> 1500
+        "schwer" -> 2000
+        else -> 1000
+    }
+    if (timeSpentSeconds <= expectedSeconds) return maxPoints
+    if (timeSpentSeconds >= 2 * expectedSeconds) return maxOf((maxPoints * 0.1).toInt(), 1)
     val overtime = timeSpentSeconds - expectedSeconds
     val decayFraction = overtime.toDouble() / expectedSeconds.coerceAtLeast(1)
-    return (1000 - (900 * decayFraction)).toInt()
+    return (maxPoints - (maxPoints * 0.9 * decayFraction)).toInt()
 }
 
 fun unlockedQuestionsForRouteDistance(routeDistanceMeters: Double?): Int {
