@@ -110,13 +110,20 @@ actual suspend fun getAdventures(): List<Adventure> = withContext(Dispatchers.IO
         }
         .decodeList<AdventureEntity>()
 
-    val locationCountById = runCatching {
-        supabaseClient.from("adventure_locations")
-            .select(columns = Columns.list("adventure_id"))
-            .decodeList<AdventureLocationAdventureIdEntity>()
-            .groupingBy { it.adventureId }
-            .eachCount()
-    }.getOrDefault(emptyMap())
+    val adventureIds = adventures.map { it.id }
+    val locationCountById = if (adventureIds.isEmpty()) {
+        emptyMap()
+    } else {
+        runCatching {
+            supabaseClient.from("adventure_locations")
+                .select(columns = Columns.list("adventure_id")) {
+                    filter { isIn("adventure_id", adventureIds) }
+                }
+                .decodeList<AdventureLocationAdventureIdEntity>()
+                .groupingBy { it.adventureId }
+                .eachCount()
+        }.getOrDefault(emptyMap())
+    }
 
     adventures.map { entity ->
         entity.toAdventure().copy(locationCount = locationCountById[entity.id] ?: 0)
@@ -230,38 +237,26 @@ actual suspend fun getAdventureLocations(adventureId: String): List<AdventureLoc
     val numericAdventureId = adventureId.toLongOrNull() ?: return@withContext emptyList()
 
     val locationEntities = supabaseClient.from("adventure_locations")
-        .select()
+        .select {
+            filter { eq("adventure_id", numericAdventureId) }
+        }
         .decodeList<AdventureLocationEntity>()
-        .filter { it.adventureId == numericAdventureId }
         .sortedBy { it.orderIndex }
 
-    println("HINTS_DEBUG: Loaded ${locationEntities.size} locations for adventure $adventureId")
-    locationEntities.forEach { loc ->
-        println("HINTS_DEBUG: Location id=${loc.id} name='${loc.name}' pointValue=${loc.pointValue}")
-    }
+    if (locationEntities.isEmpty()) return@withContext emptyList()
 
-    val locationIds = locationEntities.map { it.id }.toSet()
-    println("HINTS_DEBUG: Querying hints for locationIds=$locationIds")
+    val locationIds = locationEntities.map { it.id }
 
     val hintsByLocationId = runCatching {
-        val allHints = supabaseClient.from("hints")
-            .select()
+        supabaseClient.from("hints")
+            .select {
+                filter { isIn("location_id", locationIds) }
+            }
             .decodeList<HintEntity>()
-        println("HINTS_DEBUG: Total hints in DB (visible to this user): ${allHints.size}")
-        allHints.forEach { h ->
-            println("HINTS_DEBUG: Hint id=${h.id} locationId=${h.locationId} index=${h.hintIndex} text='${h.text}'")
-        }
-        allHints
-            .filter { it.locationId in locationIds }
             .sortedBy { it.hintIndex }
             .groupBy { it.locationId }
             .mapValues { (_, entities) -> entities.map { it.toHint() } }
-    }.onFailure { e ->
-        println("HINTS_DEBUG: ERROR fetching hints: ${e.message}")
-        e.printStackTrace()
     }.getOrDefault(emptyMap())
-
-    println("HINTS_DEBUG: hintsByLocationId keys=${hintsByLocationId.keys}")
 
     locationEntities.map { it.toAdventureLocation(hintsByLocationId[it.id].orEmpty()) }
 }

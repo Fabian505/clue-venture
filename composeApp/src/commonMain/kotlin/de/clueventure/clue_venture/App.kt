@@ -2485,17 +2485,14 @@ private fun parseGeoPoint(latitudeText: String, longitudeText: String): GeoPoint
     return GeoPoint(latitude = latitude, longitude = longitude)
 }
 
-private suspend fun calculateAdventureDurationMinutes(
+private fun calculateAdventureDurationMinutes(
     startPoint: GeoPoint,
     locations: List<AdventureLocationDraft>,
 ): Int {
     val routePoints = listOf(startPoint) + locations.map { it.point }
-    val distanceMeters = getWalkingRouteDistanceMeters(routePoints)
-        ?: routePoints.zipWithNext { current, next -> current.distanceTo(next) }.sum()
+    val distanceMeters = routePoints.zipWithNext { current, next -> current.distanceTo(next) }.sum()
     val walkingMinutes = (distanceMeters / 1_000.0) / 4.0 * 60.0
-    val locationMinutes = locations.size * 5
-
-    return ceil(walkingMinutes + locationMinutes).toInt().coerceAtLeast(locationMinutes)
+    return ceil(walkingMinutes).toInt().coerceAtLeast(1)
 }
 
 private fun canStartAdventure(startPoint: GeoPoint, currentLocation: GeoPoint?): Boolean {
