@@ -1,53 +1,12 @@
 package de.clueventure.clue_venture
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -165,9 +124,9 @@ private enum class BottomTab(
     val icon: ImageVector,
     val contentDescription: String,
 ) {
-    Left(icon = BottomBarIcons.Left, contentDescription = "Menue links"),
+    Left(icon = BottomBarIcons.Left, contentDescription = "Menü links"),
     Map(icon = BottomBarIcons.Map, contentDescription = "Karte"),
-    Right(icon = BottomBarIcons.Right, contentDescription = "Menue rechts"),
+    Right(icon = BottomBarIcons.Right, contentDescription = "Menü rechts"),
 }
 
 private enum class MapPickerTarget {
@@ -456,12 +415,12 @@ fun App() {
                             adventurePendingDeletion = null
                         }
                     },
-                    title = { Text("Abenteuer loeschen") },
+                    title = { Text("Abenteuer löschen") },
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Willst du '${adventure.title}' wirklich loeschen?")
+                            Text("Willst du '${adventure.title}' wirklich löschen?")
                             Text(
-                                "Alle zugehoerigen Orte werden ebenfalls geloescht.",
+                                "Alle zugehörigen Orte werden ebenfalls gelöscht.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -493,7 +452,7 @@ fun App() {
                                         adventureRefreshKey += 1
                                     }.onFailure { throwable ->
                                         deleteErrorMessage =
-                                            throwable.message ?: "Abenteuer konnte nicht geloescht werden."
+                                            throwable.message ?: "Abenteuer konnte nicht gelöscht werden."
                                     }
                                     isDeletingAdventure = false
                                 }
@@ -506,7 +465,7 @@ fun App() {
                                     strokeWidth = 2.dp,
                                 )
                             } else {
-                                Text("Loeschen")
+                                Text("Löschen")
                             }
                         }
                     },
@@ -704,13 +663,13 @@ private fun CreateAdventureScreen(
         val parsedLongitude = locationLongitude.toDoubleOrNull()
 
         when {
-            locationName.isBlank() -> errorMessage = "Bitte gib einen Namen fuer den Ort ein."
+            locationName.isBlank() -> errorMessage = "Bitte gib einen Namen für den Ort ein."
             parsedLatitude == null || parsedLongitude == null -> {
-                errorMessage = "Bitte gib gueltige Koordinaten fuer den Ort ein."
+                errorMessage = "Bitte gib gültige Koordinaten für den Ort ein."
             }
 
             !isValidLatitude(parsedLatitude) || !isValidLongitude(parsedLongitude) -> {
-                errorMessage = "Koordinaten muessen in gueltigen Bereichen liegen."
+                errorMessage = "Koordinaten müssen in gültigen Bereichen liegen."
             }
 
             else -> {
@@ -738,15 +697,15 @@ private fun CreateAdventureScreen(
             title.isBlank() -> errorMessage = "Bitte gib einen Titel ein."
             summary.isBlank() -> errorMessage = "Bitte gib eine Kurzbeschreibung ein."
             parsedStartLatitude == null || parsedStartLongitude == null -> {
-                errorMessage = "Bitte gib gueltige Startkoordinaten ein."
+                errorMessage = "Bitte gib gültige Startkoordinaten ein."
             }
 
             !isValidLatitude(parsedStartLatitude) || !isValidLongitude(parsedStartLongitude) -> {
-                errorMessage = "Startkoordinaten muessen in gueltigen Bereichen liegen."
+                errorMessage = "Startkoordinaten müssen in gültigen Bereichen liegen."
             }
 
             locations.isEmpty() -> {
-                errorMessage = "Bitte fuege mindestens einen Ort hinzu."
+                errorMessage = "Bitte füge mindestens einen Ort hinzu."
             }
 
             else -> {
@@ -796,9 +755,9 @@ private fun CreateAdventureScreen(
         MapPointPickerScreen(
             modifier = modifier,
             title = when (mapPickerTarget) {
-                MapPickerTarget.StartPoint -> "Startpunkt auf Karte waehlen"
-                MapPickerTarget.AdventureLocation -> "Ort auf Karte waehlen"
-                null -> "Ort auf Karte waehlen"
+                MapPickerTarget.StartPoint -> "Startpunkt auf Karte wählen"
+                MapPickerTarget.AdventureLocation -> "Ort auf Karte wählen"
+                null -> "Ort auf Karte wählen"
             },
             selectedPoint = mapPickedPoint,
             onCancel = {
@@ -893,7 +852,7 @@ private fun CreateAdventureScreen(
             if (currentLocation == null) {
                 item {
                     Text(
-                        text = "Kein aktueller Standort verfuegbar. Oeffne kurz die Kartenansicht, damit GPS geladen wird.",
+                        text = "Kein aktueller Standort verfügbar. Öffne kurz die Kartenansicht, damit GPS geladen wird.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -994,7 +953,7 @@ private fun CreateAdventureScreen(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isSubmitting,
                 ) {
-                    Text("Startpunkt auf Karte waehlen")
+                    Text("Startpunkt auf Karte wählen")
                 }
             }
             item {
@@ -1017,7 +976,7 @@ private fun CreateAdventureScreen(
             }
             item {
                 Text(
-                    text = "Orte fuer das Abenteuer",
+                    text = "Orte für das Abenteuer",
                     style = MaterialTheme.typography.titleSmall,
                 )
             }
@@ -1035,7 +994,7 @@ private fun CreateAdventureScreen(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = currentLocation != null,
                 ) {
-                    Text("Aktuellen Standort fuer Ort nutzen")
+                    Text("Aktuellen Standort für Ort nutzen")
                 }
             }
             item {
@@ -1047,7 +1006,7 @@ private fun CreateAdventureScreen(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isSubmitting,
                 ) {
-                    Text("Ort auf Karte waehlen")
+                    Text("Ort auf Karte wählen")
                 }
             }
             item {
@@ -1100,13 +1059,13 @@ private fun CreateAdventureScreen(
                     onClick = { addLocation() },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Ort hinzufuegen")
+                    Text("Ort hinzufügen")
                 }
             }
             if (locations.isNotEmpty()) {
                 item {
                     Text(
-                        text = "Hinzugefuegte Orte",
+                        text = "Hinzugefügte Orte",
                         style = MaterialTheme.typography.titleSmall,
                     )
                 }
@@ -1294,7 +1253,7 @@ private fun CreateAdventureScreen(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isSubmitting,
                 ) {
-                    Text("+ Frage hinzufuegen")
+                    Text("+ Frage hinzufügen")
                 }
             }
             if (quizQuestions.isNotEmpty()) {
@@ -1321,7 +1280,7 @@ private fun CreateAdventureScreen(
                                 TextButton(onClick = {
                                     quizQuestions = quizQuestions.filterIndexed { i, _ -> i != index }
                                 }) {
-                                    Text("Loeschen")
+                                    Text("Löschen")
                                 }
                             }
                         }
@@ -1422,13 +1381,13 @@ private fun EditAdventureScreen(
         val parsedLongitude = locationLongitude.toDoubleOrNull()
 
         when {
-            locationName.isBlank() -> errorMessage = "Bitte gib einen Namen fuer den Ort ein."
+            locationName.isBlank() -> errorMessage = "Bitte gib einen Namen für den Ort ein."
             parsedLatitude == null || parsedLongitude == null -> {
-                errorMessage = "Bitte gib gueltige Koordinaten fuer den Ort ein."
+                errorMessage = "Bitte gib gültige Koordinaten für den Ort ein."
             }
 
             !isValidLatitude(parsedLatitude) || !isValidLongitude(parsedLongitude) -> {
-                errorMessage = "Koordinaten muessen in gueltigen Bereichen liegen."
+                errorMessage = "Koordinaten müssen in gültigen Bereichen liegen."
             }
 
             else -> {
@@ -1465,15 +1424,15 @@ private fun EditAdventureScreen(
             title.isBlank() -> errorMessage = "Bitte gib einen Titel ein."
             summary.isBlank() -> errorMessage = "Bitte gib eine Kurzbeschreibung ein."
             parsedStartLatitude == null || parsedStartLongitude == null -> {
-                errorMessage = "Bitte gib gueltige Startkoordinaten ein."
+                errorMessage = "Bitte gib gültige Startkoordinaten ein."
             }
 
             !isValidLatitude(parsedStartLatitude) || !isValidLongitude(parsedStartLongitude) -> {
-                errorMessage = "Startkoordinaten muessen in gueltigen Bereichen liegen."
+                errorMessage = "Startkoordinaten müssen in gültigen Bereichen liegen."
             }
 
             orderedLocations.isEmpty() -> {
-                errorMessage = "Bitte fuege mindestens einen Ort hinzu."
+                errorMessage = "Bitte füge mindestens einen Ort hinzu."
             }
 
             else -> {
@@ -1594,9 +1553,9 @@ private fun EditAdventureScreen(
         MapPointPickerScreen(
             modifier = modifier,
             title = when (mapPickerTarget) {
-                MapPickerTarget.StartPoint -> "Startpunkt auf Karte waehlen"
-                MapPickerTarget.AdventureLocation -> "Ort auf Karte waehlen"
-                null -> "Ort auf Karte waehlen"
+                MapPickerTarget.StartPoint -> "Startpunkt auf Karte wählen"
+                MapPickerTarget.AdventureLocation -> "Ort auf Karte wählen"
+                null -> "Ort auf Karte wählen"
             },
             selectedPoint = mapPickedPoint,
             onCancel = {
@@ -1811,7 +1770,7 @@ private fun EditAdventureScreen(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isSubmitting,
                 ) {
-                    Text("Startpunkt auf Karte waehlen")
+                    Text("Startpunkt auf Karte wählen")
                 }
             }
             item {
@@ -2080,7 +2039,7 @@ private fun EditAdventureScreen(
             }
             item {
                 Text(
-                    text = "Neue Orte hinzufuegen",
+                    text = "Neue Orte hinzufügen",
                     style = MaterialTheme.typography.titleSmall,
                 )
             }
@@ -2098,7 +2057,7 @@ private fun EditAdventureScreen(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = currentLocation != null,
                 ) {
-                    Text("Aktuellen Standort fuer Ort nutzen")
+                    Text("Aktuellen Standort für Ort nutzen")
                 }
             }
             item {
@@ -2110,7 +2069,7 @@ private fun EditAdventureScreen(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isSubmitting,
                 ) {
-                    Text("Ort auf Karte waehlen")
+                    Text("Ort auf Karte wählen")
                 }
             }
             item {
@@ -2164,7 +2123,7 @@ private fun EditAdventureScreen(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isSubmitting,
                 ) {
-                    Text("Ort hinzufuegen")
+                    Text("Ort hinzufügen")
                 }
             }
             item {
@@ -2182,7 +2141,7 @@ private fun EditAdventureScreen(
                     if (isSavingQuizQuestion) {
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     } else {
-                        Text("+ Frage hinzufuegen")
+                        Text("+ Frage hinzufügen")
                     }
                 }
             }
@@ -2228,12 +2187,12 @@ private fun EditAdventureScreen(
                                             isSavingQuizQuestion = true
                                             runCatching { deleteQuizQuestion(question.id) }
                                                 .onSuccess { quizQuestions = quizQuestions - question }
-                                                .onFailure { e -> errorMessage = "Frage konnte nicht geloescht werden: ${e.message}" }
+                                                .onFailure { e -> errorMessage = "Frage konnte nicht gelöscht werden: ${e.message}" }
                                             isSavingQuizQuestion = false
                                         }
                                     },
                                     enabled = !isSavingQuizQuestion,
-                                ) { Text("Loeschen") }
+                                ) { Text("Löschen") }
                             }
                         }
                     }
@@ -2287,7 +2246,7 @@ private fun MapPointPickerScreen(
                 },
                 enabled = selectedPoint != null,
             ) {
-                Text("Uebernehmen")
+                Text("Übernehmen")
             }
         }
 
@@ -2576,7 +2535,7 @@ private fun canStartAdventure(startPoint: GeoPoint, currentLocation: GeoPoint?):
 
 private fun startDialogDistanceLabel(startPoint: GeoPoint, currentLocation: GeoPoint?): String {
     if (currentLocation == null) {
-        return "Standort nicht verfuegbar. Bitte aktiviere GPS."
+        return "Standort nicht verfügbar. Bitte aktiviere GPS."
     }
 
     val distanceMeters = startPoint.distanceTo(currentLocation).roundToInt()

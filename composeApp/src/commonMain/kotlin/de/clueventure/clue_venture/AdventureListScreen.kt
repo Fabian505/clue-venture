@@ -237,7 +237,7 @@ private fun AdventureCard(
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text("Loeschen") },
+                            text = { Text("Löschen") },
                             onClick = {
                                 showActionsMenu = false
                                 onDeleteAdventure()
